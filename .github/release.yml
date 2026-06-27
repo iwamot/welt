@@ -1,0 +1,23 @@
+changelog:
+  exclude:
+    labels:
+      - article
+  categories:
+    - title: ⚠ Breaking Changes
+      labels:
+        - breaking
+    - title: 🏕 Features
+      labels:
+        - feature
+    - title: 🐛 Bug Fixes
+      labels:
+        - bugfix
+    - title: 👒 Dependencies
+      labels:
+        - dependencies
+    - title: 🚜 Maintenance
+      labels:
+        - maintenance
+    - title: ❓ Uncategorized
+      labels:
+        - '*'
