@@ -1,48 +1,74 @@
-# repo-template
+# Welt
 
-Starter template for repositories in iwamot's ecosystem.
+[![ghcr.io](https://img.shields.io/github/v/release/iwamot/welt?logo=docker&label=ghcr.io)](https://github.com/iwamot/welt/pkgs/container/welt)
 
-## Files
+**A Slack frontend for AI agents on Amazon Bedrock AgentCore.**
 
-| Path | Purpose |
-|------|---------|
-| `.github/Oidefile` | Manifest of files this template distributes. `oide.yml` pulls every listed path into derived repos. |
-| `.github/release.yml` | GitHub auto-generated release notes categorization (Features / Dependencies). |
-| `.github/renovate.json` | Extends the `iwamot/renovate-config` preset. |
-| `.github/workflows/auto-label.yml` | Labels PRs from their Conventional Commit title. |
-| `.github/workflows/dco.yml` | Checks that every PR commit carries a DCO sign-off. |
-| `.github/workflows/dependabot-auto-merge.yml` | Auto-merges Dependabot PRs. |
-| `.github/workflows/dependency-review.yml` | Vulnerability and license review on PRs. |
-| `.github/workflows/oide.yml` | Pulls the files listed in `.github/Oidefile` from this template. See [Staying in sync](#staying-in-sync). |
-| `.github/workflows/release.yml` | Creates a GitHub Release when a `v*` tag is pushed. |
-| `.github/workflows/renovate.yml` | Self-hosted Renovate runner (hourly + on push to main). |
-| `.github/workflows/validate.yml` | Runs `validate.sh` on push and PR via `iwamot/workflows`. |
-| `CONTRIBUTING.md` | Contribution guide: local setup, DCO, and Conventional Commits. |
-| `LICENSE` | Project license. |
-| `SECURITY.md` | Minimal security policy. Directs vulnerability reports to GitHub Security Advisories. |
-| `mise.toml` | Pins mise minimum version and includes shared tasks from `iwamot/mise-tasks`. |
-| `validate.sh` | Lint entry point invoked by `iwamot/actions/mise-validate`. Add repo-specific lint at the marked location. |
+![Welt streaming an agent reply into a Slack thread](https://gist.github.com/user-attachments/assets/351f3522-dea8-4780-87fb-36ae2b84448f)
 
-## Staying in sync
+Welt is a deployable Slack app that forwards conversations to your agent on AgentCore (your own code on AgentCore Runtime, or a managed harness) and streams the reply back into the Slack thread. You focus on the agent — model, tools, MCP, memory — and Welt takes care of the Slack side: tokens, event intake, history fetch, and streaming rendering.
 
-This template owns the shared governance files — the paths listed in `.github/Oidefile`. Derived repositories track it through two automated flows:
+## Quick Start
 
-- **Governance files** — `.github/workflows/oide.yml` runs [`iwamot/oide`](https://github.com/iwamot/oide), which pulls every path listed in `.github/Oidefile` from this template and opens a PR. Its `TEMPLATE_VERSION` pin is tracked by Renovate, so tagging a new template release bumps the pin, which triggers the pull. `.github/Oidefile` lists itself, so adding a path to the template's manifest propagates to every derived repo in one pull.
-- **Version pins** — Renovate keeps the action SHAs in `.github/workflows/*.yml` and the task ref in `mise.toml` current.
+### 1. Deploy an Agent
 
-## Post-creation setup
+Deploy your agent to AgentCore Runtime and note its ARN. [`examples/agent/`](examples/agent/) is a working example to start from. If you'd rather not write agent code, a managed harness ARN works here too.
 
-After clicking **Use this template**:
+### 2. Create a Slack App
 
-1. **Replace this README.md** with the new repository's own description.
-2. **Install the Renovate App** (or your self-hosted equivalent) for the new repo.
-3. **Create a GitHub Environment** for Renovate (default name: `production`, override via the `environment` input on `renovate.yml` if needed) and add environment-scoped secrets:
-   - `RENOVATE_APP_CLIENT_ID`
-   - `RENOVATE_APP_PRIVATE_KEY`
-4. **Add a release workflow** if the repo ships artifacts. These also take an `environment` input — create additional environments as needed:
-   - `iwamot/workflows/.github/workflows/release-ghcr.yml` for GHCR
-   - `iwamot/workflows/.github/workflows/release-ecr-public.yml` for ECR Public
-   - `iwamot/workflows/.github/workflows/release-homebrew-tap.yml` for Homebrew tap
-5. **Add language-specific files** as needed: `Dockerfile`, `package.json`, `pyproject.toml`, `.gitignore`, etc.
-6. **Extend `validate.sh`** with repo-specific lint (e.g. `mise run docker-lint Dockerfile`, language linters).
-7. **Review `mise.toml`'s `min_version`**: the template provides a default, but the minimum mise version is each repository's own decision. Bump it if your tasks require a newer feature, or drop it if no constraint is needed. This is *not* auto-bumped by Renovate.
+- Go to <https://api.slack.com/apps> and create a new Slack app from [`manifest.yml`](manifest.yml).
+- In **Basic Information > App-Level Tokens**, generate a token with the `connections:write` scope and copy it (`xapp-1-...`).
+- In **Install App**, install the app to your workspace and copy the **Bot User OAuth Token** (`xoxb-...`).
+
+### 3. Create a `.env` File
+
+Save your Slack tokens and agent ARN in a `.env` file ([`.env.sample`](.env.sample) lists all supported variables):
+
+```sh
+SLACK_APP_TOKEN=xapp-1-...
+SLACK_BOT_TOKEN=xoxb-...
+AGENT_ARN=arn:aws:bedrock-agentcore:...
+```
+
+For AWS credentials, any standard boto3 configuration works: best is an IAM role assumed from the environment Welt runs in (EC2, ECS, ...), and access keys in `.env` work too. Either way, the identity needs permission to invoke your agent.
+
+### 4. Run Welt Container
+
+```sh
+docker run -it --env-file .env ghcr.io/iwamot/welt:latest
+```
+
+### 5. Say Hello!
+
+Invite the bot to a channel (`/invite @Welt`) and mention it, or send it a DM. Welt streams the agent's reply into the thread, showing tool use as it happens.
+
+## Running on AWS Lambda
+
+Instead of the resident container, Welt also runs on AWS Lambda: `lambda_function.py` serves the same conversation flow on the Lambda Python runtime.
+
+1. Package the function:
+
+   ```sh
+   uv export --frozen --no-dev --no-emit-project > requirements-lambda.txt
+   pip install -r requirements-lambda.txt -t package/
+   cp -r app lambda_function.py package/
+   (cd package && zip -r ../welt-lambda.zip .)
+   ```
+
+2. Create a function with the latest Python runtime, handler `lambda_function.lambda_handler`, and a timeout long enough for your agent's replies (execution is bounded by Lambda's 15-minute cap).
+3. Set the environment variables: `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` (**Basic Information > Signing Secret**), and `AGENT_ARN`.
+4. Give the function's role permission to invoke your agent, plus `lambda:InvokeFunction` on the function itself (it re-invokes itself to reply after acking each event).
+5. Create a Function URL (auth type `NONE`).
+6. In the Slack app manifest, set `socket_mode_enabled: false` and add the URL as `settings.event_subscriptions.request_url`.
+
+## Contributing
+
+Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+## Related Projects
+
+- [iwamot/collmbo](https://github.com/iwamot/collmbo) - A Slack bot for chatting with 100+ LLMs directly — no AI agent to implement or deploy. Pick Collmbo for plain LLM chat, Welt for your own agent.
+
+## License
+
+MIT

@@ -1,0 +1,61 @@
+# Dependency management with uv.
+# Welt is a deployable Slack frontend, not a distributable package, so this file
+# defines no build backend — it only pins dependencies and tool configuration.
+
+[project]
+name = "welt"
+version = "0.0.0"
+description = "Slack frontend for AI agents on Amazon Bedrock AgentCore Runtime."
+# Floor matches the oldest AL2023-based AWS Lambda Python runtime (python3.12),
+# so the Lambda entry point runs on every current-generation managed runtime.
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Takashi Iwamoto", email = "hello@iwamot.com" }]
+dependencies = [
+    "slack-bolt>=1.29",
+    # Welt makes Slack Web API calls directly through AsyncWebClient, so it
+    # depends on slack-sdk explicitly (not only transitively via slack-bolt).
+    "slack-sdk>=3.43",
+    # Bolt's AsyncApp imports aiohttp at module load (its async web server).
+    "aiohttp>=3.9",
+    # invoke_agent_runtime (AgentCore Runtime) is called through boto3.
+    "boto3>=1.40",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pip-licenses>=5.5",
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=7",
+    # examples/agent is a standalone deployable, but its dependencies are
+    # installed here too so `ty check` covers it without skips.
+    "bedrock-agentcore>=0.1",
+    "strands-agents>=1.0",
+]
+
+[tool.uv]
+exclude-newer = "1 day"
+
+[tool.ruff]
+include = ["*.py", "app/**/*.py", "examples/**/*.py", "tests/**/*.py"]
+
+[tool.ruff.lint]
+extend-select = [
+    "F", "W", "I", "UP", "C4", "FA", "ISC", "ICN", "RET", "TID", "PTH", "TD", "S",
+]
+ignore = ["S101"]
+
+[tool.ty.src]
+include = [".", "app", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["main", "lambda_function", "app"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
