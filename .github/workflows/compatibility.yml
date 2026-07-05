@@ -1,0 +1,18 @@
+name: Compatibility
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  compatibility:
+    permissions:
+      contents: read
+    uses: iwamot/workflows/.github/workflows/compatibility-python.yml@086f2d88815451da2cba7dc9e6e044d86c66743c # v8.2.0
+    with:
+      python-versions: '["3.12","3.13","3.14"]'

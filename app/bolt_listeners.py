@@ -1,0 +1,434 @@
+"""Responds to new Slack posts by streaming the agent's reply.
+
+This is the I/O shell: it filters incoming posts, fetches conversation
+history, invokes the AgentCore agent, and renders the streamed reply through
+the chat streaming API (chat.startStream / appendStream / stopStream via
+`RotatingChatStream`, which rolls the reply over to a follow-up message when
+Slack's per-message length limit is hit). One Slack thread is one
+conversation and one agent session, in channels and DMs alike. All
+classification and formatting is delegated to the pure `*_logic` modules.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import AsyncIterator
+
+from slack_bolt.context.base_context import BaseContext
+from slack_sdk.web.async_client import AsyncWebClient
+
+from app.agent_logic import build_runtime_session_id, build_runtime_user_id
+from app.agent_service import stream_agent_events
+from app.bolt_logic import (
+    MAX_THREAD_REPLIES,
+    determine_thread_ts_to_reply,
+    extract_user_id_from_context,
+    has_read_files_scope,
+    is_post_from_bot,
+    is_post_in_dm,
+    is_post_mentioned,
+    keep_newest_replies,
+)
+from app.converse_logic import ContentBlock, build_messages
+from app.env import Env
+from app.message_logic import build_tool_use_task_chunk
+from app.slack_file_logic import (
+    MAX_BYTES_BY_MODALITY,
+    MAX_SLOTS_BY_MODALITY,
+    Modality,
+    select_files_to_fetch,
+)
+from app.slack_file_service import fetch_file_blocks
+from app.slack_stream_service import RotatingChatStream
+from app.stream_logic import RenderEvent, StreamError, ToolResult, ToolUse
+
+logger = logging.getLogger(__name__)
+
+
+async def respond_to_new_post(
+    *,
+    env: Env,
+    context: BaseContext,
+    payload: dict,
+    client: AsyncWebClient,
+) -> None:
+    """
+    Respond to a new Slack post.
+
+    Filters irrelevant posts, builds the conversation history, and streams
+    the agent's reply into the thread. Takes `BaseContext` — the data shared
+    by the sync and async Bolt contexts — so both entry points (Socket Mode
+    and Lambda) can call it.
+
+    Args:
+        env (Env): The validated configuration.
+        context (BaseContext): The Bolt context object.
+        payload (dict): The payload of the incoming Slack post.
+        client (AsyncWebClient): The Slack Web API client.
+
+    Returns:
+        None
+    """
+    if context.channel_id is None:
+        raise ValueError("context.channel_id cannot be None")
+    user_id = extract_user_id_from_context(context)
+    if user_id is None:
+        raise ValueError("User ID could not be determined from context")
+
+    if is_post_from_bot(payload):
+        return
+
+    reply_thread_ts = determine_thread_ts_to_reply(payload)
+    streamer = None
+    try:
+        if not (
+            is_post_mentioned(context.bot_user_id, payload)
+            or is_post_in_dm(payload)
+            or await has_parent_post_mentioned(context, payload, client)
+        ):
+            return
+        replies = await get_replies(
+            client=client,
+            payload=payload,
+            channel_id=context.channel_id,
+            user_id=user_id,
+        )
+        file_blocks = await fetch_file_blocks_for_replies(
+            context, replies, allowed_modalities=env.file_input_modalities
+        )
+        messages = build_messages(
+            replies,
+            bot_user_id=context.bot_user_id,
+            file_blocks_by_id=file_blocks,
+        )
+        events = stream_agent_events(
+            agent_arn=env.agent_arn,
+            messages=messages,
+            agent_manages_history=env.agent_manages_history,
+            session_id=build_runtime_session_id(
+                team_id=context.team_id,
+                channel_id=context.channel_id,
+                thread_ts=reply_thread_ts,
+            ),
+            user_id=build_runtime_user_id(team_id=context.team_id, user_id=user_id),
+        )
+        streamer = RotatingChatStream(
+            client,
+            channel=context.channel_id,
+            thread_ts=reply_thread_ts,
+            recipient_team_id=context.team_id,
+            recipient_user_id=user_id,
+            buffer_size=env.slack_stream_buffer_size,
+        )
+        await streamer.start()
+        await stream_agent_reply_to_slack(streamer=streamer, events=events)
+    except Exception as e:
+        await report_reply_failure(
+            client=client,
+            channel_id=context.channel_id,
+            thread_ts=reply_thread_ts,
+            error=e,
+            streamer=streamer,
+            failure_text=env.reply_failure_text,
+        )
+
+
+# Parent-mention decisions, keyed by (channel, thread_ts): without this,
+# every reply in every thread the bot can see would cost a
+# conversations_history call. A parent edited after the first check can leave
+# a stale entry; accepted, since edits to thread parents are rare and the
+# cache only spans this process. Oldest entries fall out first.
+_PARENT_MENTION_CACHE_MAX_SIZE = 1000
+_parent_mention_cache: dict[tuple[str, str], bool] = {}
+
+
+async def has_parent_post_mentioned(
+    context: BaseContext,
+    payload: dict,
+    client: AsyncWebClient,
+) -> bool:
+    """
+    Check whether the parent post of the thread mentions the bot.
+
+    Args:
+        context (BaseContext): The Bolt context object.
+        payload (dict): The payload of the incoming Slack post.
+        client (AsyncWebClient): The Slack Web API client.
+
+    Returns:
+        bool: True if the parent post mentions the bot, False otherwise.
+    """
+    thread_ts = payload.get("thread_ts")
+    if context.channel_id is None or not isinstance(thread_ts, str):
+        return False
+    key = (context.channel_id, thread_ts)
+    cached = _parent_mention_cache.get(key)
+    if cached is not None:
+        return cached
+    parent_post = await find_parent_post(
+        client=client,
+        channel_id=context.channel_id,
+        thread_ts=thread_ts,
+    )
+    mentioned = is_post_mentioned(context.bot_user_id, parent_post)
+    if len(_parent_mention_cache) >= _PARENT_MENTION_CACHE_MAX_SIZE:
+        del _parent_mention_cache[next(iter(_parent_mention_cache))]
+    _parent_mention_cache[key] = mentioned
+    return mentioned
+
+
+async def find_parent_post(
+    *,
+    client: AsyncWebClient,
+    channel_id: str,
+    thread_ts: str,
+) -> dict | None:
+    """
+    Find the parent post of a thread in Slack.
+
+    Args:
+        client (AsyncWebClient): The Slack Web API client.
+        channel_id (str): The ID of the channel with the thread.
+        thread_ts (str): The timestamp of the thread.
+
+    Returns:
+        dict | None: The parent post if found, None otherwise.
+    """
+    response = await client.conversations_history(
+        channel=channel_id,
+        latest=thread_ts,
+        limit=1,
+        inclusive=True,
+    )
+    posts: list[dict] = response.get("messages", [])
+    return posts[0] if posts else None
+
+
+async def get_replies(
+    *,
+    client: AsyncWebClient,
+    payload: dict,
+    channel_id: str,
+    user_id: str,
+) -> list[dict]:
+    """
+    Retrieve the replies to use as conversation history for the incoming post.
+
+    One thread is one conversation: a post inside a thread brings the whole
+    thread as history, and a post outside a thread (channel mention or a new
+    DM message) starts a new conversation from that post alone.
+
+    Args:
+        client (AsyncWebClient): The Slack Web API client.
+        payload (dict): The payload of the incoming Slack post.
+        channel_id (str): The ID of the channel where the post was made.
+        user_id (str): The ID of the user who made the post.
+
+    Returns:
+        list[dict]: A list of replies based on the post context.
+    """
+    thread_ts = payload.get("thread_ts")
+    if thread_ts is not None:
+        return await get_thread_replies(client, channel_id, thread_ts)
+    return [
+        {
+            "text": payload["text"],
+            "user": user_id,
+            "bot_id": payload.get("bot_id"),
+            "files": payload.get("files"),
+        }
+    ]
+
+
+async def get_thread_replies(
+    client: AsyncWebClient, channel_id: str, thread_ts: str
+) -> list[dict]:
+    """
+    Retrieve the replies in a Slack thread, keeping the newest of long ones.
+
+    Follows cursor pagination so a thread longer than one page is read to its
+    end, then keeps the newest MAX_THREAD_REPLIES replies — the latest posts
+    must reach the agent, at the cost of the oldest context.
+
+    Args:
+        client (AsyncWebClient): The Slack Web API client.
+        channel_id (str): The ID of the channel containing the thread.
+        thread_ts (str): The timestamp of the parent post.
+
+    Returns:
+        list[dict]: The newest replies in the thread, in chronological order.
+    """
+    replies: list[dict] = []
+    cursor: str | None = None
+    while True:
+        response = await client.conversations_replies(
+            channel=channel_id,
+            ts=thread_ts,
+            limit=1000,
+            cursor=cursor,
+        )
+        replies.extend(response.get("messages", []))
+        metadata = response.get("response_metadata")
+        cursor = metadata.get("next_cursor") if isinstance(metadata, dict) else None
+        if not cursor:
+            break
+    return keep_newest_replies(replies, max_count=MAX_THREAD_REPLIES)
+
+
+async def fetch_file_blocks_for_replies(
+    context: BaseContext,
+    replies: list[dict],
+    *,
+    allowed_modalities: tuple[Modality, ...],
+) -> dict[str, ContentBlock]:
+    """
+    Download the files the replies carry, if file input is enabled.
+
+    Args:
+        context (BaseContext): The Bolt context object.
+        replies (list[dict]): Slack replies in chronological order.
+        allowed_modalities (tuple[Modality, ...]): The modalities to accept
+            (`Env.file_input_modalities`); empty disables file input.
+
+    Returns:
+        dict[str, ContentBlock]: Content blocks keyed by Slack file ID.
+    """
+    if not allowed_modalities:
+        return {}
+    if not has_read_files_scope(context.authorize_result):
+        return {}
+    selections = select_files_to_fetch(
+        replies,
+        bot_user_id=context.bot_user_id,
+        allowed_modalities=allowed_modalities,
+        max_slots_by_modality=MAX_SLOTS_BY_MODALITY,
+        max_bytes_by_modality=MAX_BYTES_BY_MODALITY,
+    )
+    if not selections:
+        return {}
+    if context.bot_token is None:
+        raise ValueError("context.bot_token cannot be None")
+    return await fetch_file_blocks(selections, bot_token=context.bot_token)
+
+
+async def stream_agent_reply_to_slack(
+    *,
+    streamer: RotatingChatStream,
+    events: AsyncIterator[RenderEvent],
+) -> None:
+    """
+    Render the agent's event stream into the streaming reply.
+
+    Text deltas append markdown (buffered by the SDK helper); tool use is
+    shown as task_update chunks, marked complete (or error) when its tool
+    result arrives — or when the next text or tool does, for agents that do
+    not send tool results. The message is finalized with chat.stopStream. A
+    reply that outgrows Slack's per-message limit continues in a follow-up
+    message (see `RotatingChatStream`).
+
+    Args:
+        streamer (RotatingChatStream): The stream helper for this reply.
+        events (AsyncIterator[RenderEvent]): Parsed agent stream events.
+
+    Returns:
+        None
+    """
+    active_tool: ToolUse | None = None
+    async for event in events:
+        if isinstance(event, StreamError):
+            raise RuntimeError(f"The agent reported an error: {event.message}")
+        if isinstance(event, ToolUse):
+            if active_tool is not None and event.tool_use_id == active_tool.tool_use_id:
+                continue
+            chunks = _tool_chunks(completed=active_tool, started=event)
+            active_tool = event
+            await streamer.append(chunks=chunks)
+            continue
+        if isinstance(event, ToolResult):
+            if active_tool is not None and event.tool_use_id == active_tool.tool_use_id:
+                await streamer.append(
+                    chunks=_tool_chunks(completed=active_tool, error=event.error)
+                )
+                active_tool = None
+            continue
+        if active_tool is not None:
+            await streamer.append(chunks=_tool_chunks(completed=active_tool))
+            active_tool = None
+        await streamer.append(markdown_text=event.text)
+    await streamer.stop(
+        chunks=_tool_chunks(completed=active_tool) if active_tool else None
+    )
+
+
+def _tool_chunks(
+    *,
+    completed: ToolUse | None = None,
+    started: ToolUse | None = None,
+    error: bool = False,
+) -> list[dict]:
+    chunks: list[dict] = []
+    if completed is not None:
+        chunks.append(
+            build_tool_use_task_chunk(
+                tool_use_id=completed.tool_use_id,
+                tool_name=completed.name,
+                status="error" if error else "complete",
+            )
+        )
+    if started is not None:
+        chunks.append(
+            build_tool_use_task_chunk(
+                tool_use_id=started.tool_use_id,
+                tool_name=started.name,
+                status="in_progress",
+            )
+        )
+    return chunks
+
+
+async def report_reply_failure(
+    *,
+    client: AsyncWebClient,
+    channel_id: str,
+    thread_ts: str,
+    error: Exception,
+    streamer: RotatingChatStream | None,
+    failure_text: str,
+) -> None:
+    """
+    Report a failed reply: full details to the log, a generic note to Slack.
+
+    The error text can carry internals (ARNs, AWS error details), so it
+    stays in the log; the channel gets a generic pointer. If the streaming
+    reply is already visible, the note finalizes that message so no empty
+    half-open reply is left behind; otherwise it is posted as a new reply.
+
+    Args:
+        client (AsyncWebClient): The Slack Web API client.
+        channel_id (str): The ID of the channel where the post was made.
+        thread_ts (str): The thread timestamp to reply to.
+        error (Exception): The failure to log.
+        streamer (RotatingChatStream | None): The stream helper, if created.
+        failure_text (str): The message posted to the thread
+            (`Env.reply_failure_text`).
+
+    Returns:
+        None
+    """
+    logger.error(
+        "Failed to reply (channel: %s, thread: %s)",
+        channel_id,
+        thread_ts,
+        exc_info=error,
+    )
+    if streamer is not None and streamer.ts is not None:
+        try:
+            await streamer.stop(markdown_text=failure_text)
+            return
+        except Exception:
+            logger.debug("Failed to stop the stream", exc_info=True)
+    await client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        text=failure_text,
+    )
