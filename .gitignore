@@ -9,10 +9,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# AgentCore CLI artifacts (examples/agent/)
-.bedrock_agentcore/
-.bedrock_agentcore.yaml
-
 # Lambda packaging artifacts (README deployment steps)
 /package/
 /requirements-lambda.txt

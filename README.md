@@ -10,9 +10,21 @@ Welt is a deployable Slack app that forwards conversations to your agent on Agen
 
 ## Quick Start
 
-### 1. Deploy an Agent
+### 1. Deploy the Example Agent
 
-Deploy your agent to AgentCore Runtime and note its ARN. [`examples/agent/`](examples/agent/) is a working example to start from. If you'd rather not write agent code, a managed harness ARN works here too.
+Deploy [`examples/agent/main.py`](examples/agent/main.py) — a small Strands agent with one tool that tells the current time — with the [AgentCore CLI](https://github.com/aws/agentcore-cli):
+
+```sh
+agentcore create --name WeltExample --framework Strands --model-provider Bedrock --memory none
+cd WeltExample
+
+curl -o app/WeltExample/main.py https://raw.githubusercontent.com/iwamot/welt/main/examples/agent/main.py
+uv add --project app/WeltExample welt-io
+
+agentcore deploy
+```
+
+The example agent uses the Strands default model — currently an Anthropic Claude model — so enable access for it in the Amazon Bedrock console, in the region you deployed to.
 
 ### 2. Create a Slack App
 
@@ -22,7 +34,7 @@ Deploy your agent to AgentCore Runtime and note its ARN. [`examples/agent/`](exa
 
 ### 3. Create a `.env` File
 
-Save your Slack tokens and agent ARN in a `.env` file ([`.env.sample`](.env.sample) lists all supported variables):
+Save your Slack tokens and the agent runtime ARN from step 1 in a `.env` file ([`.env.sample`](.env.sample) lists all supported variables):
 
 ```sh
 SLACK_APP_TOKEN=xapp-1-...
@@ -30,36 +42,39 @@ SLACK_BOT_TOKEN=xoxb-...
 AGENT_ARN=arn:aws:bedrock-agentcore:...
 ```
 
-For AWS credentials, any standard boto3 configuration works: best is an IAM role assumed from the environment Welt runs in (EC2, ECS, ...), and access keys in `.env` work too. Either way, the identity needs permission to invoke your agent.
-
 ### 4. Run Welt Container
 
+Pass your current AWS credentials alongside the `.env` file — the identity needs permission to invoke your agent:
+
 ```sh
-docker run -it --env-file .env ghcr.io/iwamot/welt:latest
+docker run -it \
+  --env-file .env \
+  --env-file <(aws configure export-credentials --format env-no-export) \
+  ghcr.io/iwamot/welt:latest
 ```
 
 ### 5. Say Hello!
 
-Invite the bot to a channel (`/invite @Welt`) and mention it, or send it a DM. Welt streams the agent's reply into the thread, showing tool use as it happens.
+Invite the bot to a channel (`/invite @Welt`) and mention it, or send it a DM. Welt streams the agent's reply into the thread — ask for the current time and you'll see tool use too.
 
-## Running on AWS Lambda
+Once you're comfortable, swap in your own Strands agent: keep the [`welt-io`](https://github.com/iwamot/welt-io) adaptation from the example and point `AGENT_ARN` at your deployment.
 
-Instead of the resident container, Welt also runs on AWS Lambda: `lambda_function.py` serves the same conversation flow on the Lambda Python runtime.
+## Configuration
 
-1. Package the function:
+Optional environment variables, all with working defaults:
 
-   ```sh
-   uv export --frozen --no-dev --no-emit-project > requirements-lambda.txt
-   pip install -r requirements-lambda.txt -t package/
-   cp -r app lambda_function.py package/
-   (cd package && zip -r ../welt-lambda.zip .)
-   ```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_MANAGES_HISTORY` | `false` | What Welt sends per turn: the full thread history (`false`), or only the new messages (`true`). |
+| `FILE_INPUT_MODALITIES` | (empty) | Comma-separated Converse modalities to accept from Slack uploads (`image`, `document`, `video`); empty disables file input. Allow only modalities your model accepts. |
+| `LOG_LEVEL` | `INFO` | Logging level for the whole process. |
+| `REPLY_FAILURE_TEXT` | `:warning: Failed to reply. Please check the app logs.` | Message posted to the thread when replying fails. |
+| `SLACK_STREAM_BUFFER_SIZE` | `256` | Markdown characters buffered before each streaming update; larger values mean fewer Slack API calls. |
 
-2. Create a function with the latest Python runtime, handler `lambda_function.lambda_handler`, and a timeout long enough for your agent's replies (execution is bounded by Lambda's 15-minute cap).
-3. Set the environment variables: `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` (**Basic Information > Signing Secret**), and `AGENT_ARN`.
-4. Give the function's role permission to invoke your agent, plus `lambda:InvokeFunction` on the function itself (it re-invokes itself to reply after acking each event).
-5. Create a Function URL (auth type `NONE`).
-6. In the Slack app manifest, set `socket_mode_enabled: false` and add the URL as `settings.event_subscriptions.request_url`.
+## Other Ways to Run
+
+- [Running Welt on AWS Lambda](docs/lambda.md) — serve Welt on Lambda instead of a resident container.
+- [Chatting with an AgentCore harness](docs/harness.md) — point `AGENT_ARN` at a managed harness instead of your own agent code.
 
 ## Contributing
 
@@ -67,7 +82,7 @@ Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) 
 
 ## Related Projects
 
-- [iwamot/collmbo](https://github.com/iwamot/collmbo) - A Slack bot for chatting with 100+ LLMs directly — no AI agent to implement or deploy. Pick Collmbo for plain LLM chat, Welt for your own agent.
+- [iwamot/collmbo](https://github.com/iwamot/collmbo) — A Slack bot for chatting with 100+ LLMs directly, no AI agent to implement or deploy. Pick Collmbo for plain LLM chat, Welt for your own agent.
 
 ## License
 
