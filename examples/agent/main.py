@@ -3,8 +3,8 @@
 Receives Welt's payload (Bedrock Converse-shaped `messages`), feeds it to a
 Strands agent, and yields the renderable subset of its `stream_async` events —
 the AgentCore Runtime SDK emits each one as SSE, which Welt renders into
-Slack. Both directions of the wire adaptation live in `welt_io`; this module
-is a plain Strands agent.
+Slack. Both directions of the wire adaptation live in the `welt-io` package
+(https://github.com/iwamot/welt-io); this module is a plain Strands agent.
 
 This example is a standalone deployable and must not import Welt's `app/`
 package; the JSON wire contract is the only thing the two sides share.
@@ -50,8 +50,9 @@ async def invoke(payload: dict) -> AsyncIterator[dict]:
             "data": "I received an empty conversation, so there is nothing to reply to."
         }
         return
-    decode_file_blocks(messages)
+    decode_file_blocks(messages)  # base64 file bytes -> raw bytes, in place
     agent = Agent(tools=[current_time], callback_handler=None)
+    # Reduce the stream to the JSON-serializable events Welt renders
     async for event in renderable_events(agent.stream_async(messages)):
         yield event
 
