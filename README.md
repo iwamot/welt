@@ -6,7 +6,9 @@
 
 ![Welt streaming an agent reply into a Slack thread](docs/images/streaming-demo.png)
 
-Welt is a deployable Slack app that forwards conversations to your agent on AgentCore (your own code on AgentCore Runtime, or a managed harness) and streams the reply back into the Slack thread. You focus on the agent — model, tools, MCP, memory — and Welt takes care of the Slack side: tokens, event intake, history fetch, and streaming rendering.
+Welt forwards conversations to your agent on AgentCore and streams the reply back into the Slack thread.
+
+You focus on the agent — model, tools, MCP, memory. Welt handles the Slack side — tokens, event intake, history fetch, and streaming rendering.
 
 ## Quick Start
 
