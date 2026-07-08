@@ -40,7 +40,13 @@ from app.slack_file_logic import (
 )
 from app.slack_file_service import fetch_file_blocks
 from app.slack_stream_service import RotatingChatStream
-from app.stream_logic import RenderEvent, StreamError, ToolResult, ToolUse
+from app.stream_logic import (
+    FileOutput,
+    RenderEvent,
+    StreamError,
+    ToolResult,
+    ToolUse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +127,13 @@ async def respond_to_new_post(
             buffer_size=env.slack_stream_buffer_size,
         )
         await streamer.start()
-        await stream_agent_reply_to_slack(streamer=streamer, events=events)
+        await stream_agent_reply_to_slack(
+            client=client,
+            channel_id=context.channel_id,
+            thread_ts=reply_thread_ts,
+            streamer=streamer,
+            events=events,
+        )
     except Exception as e:
         await report_reply_failure(
             client=client,
@@ -313,6 +325,9 @@ async def fetch_file_blocks_for_replies(
 
 async def stream_agent_reply_to_slack(
     *,
+    client: AsyncWebClient,
+    channel_id: str,
+    thread_ts: str,
     streamer: RotatingChatStream,
     events: AsyncIterator[RenderEvent],
 ) -> None:
@@ -322,11 +337,16 @@ async def stream_agent_reply_to_slack(
     Text deltas append markdown (buffered by the SDK helper); tool use is
     shown as task_update chunks, marked complete (or error) when its tool
     result arrives — or when the next text or tool does, for agents that do
-    not send tool results. The message is finalized with chat.stopStream. A
-    reply that outgrows Slack's per-message limit continues in a follow-up
-    message (see `RotatingChatStream`).
+    not send tool results. A generated file is uploaded to the thread, where
+    it appears as its own message alongside the streamed reply. The message
+    is finalized with chat.stopStream. A reply that outgrows Slack's
+    per-message limit continues in a follow-up message (see
+    `RotatingChatStream`).
 
     Args:
+        client (AsyncWebClient): The Slack Web API client.
+        channel_id (str): The ID of the channel being replied in.
+        thread_ts (str): The thread timestamp being replied to.
         streamer (RotatingChatStream): The stream helper for this reply.
         events (AsyncIterator[RenderEvent]): Parsed agent stream events.
 
@@ -337,6 +357,14 @@ async def stream_agent_reply_to_slack(
     async for event in events:
         if isinstance(event, StreamError):
             raise RuntimeError(f"The agent reported an error: {event.message}")
+        if isinstance(event, FileOutput):
+            await client.files_upload_v2(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                filename=event.name,
+                file=event.data,
+            )
+            continue
         if isinstance(event, ToolUse):
             if active_tool is not None and event.tool_use_id == active_tool.tool_use_id:
                 continue

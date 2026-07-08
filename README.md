@@ -8,25 +8,25 @@
 
 Welt forwards conversations to your agent on AgentCore and streams the reply back into the Slack thread.
 
-You focus on the agent — model, tools, MCP, memory. Welt handles the Slack side — tokens, event intake, history fetch, and streaming rendering.
+You focus on the agent — model, tools, MCP, memory. Welt handles the Slack side — tokens, event intake, history fetch, streaming rendering, and uploading the files your agent generates.
 
 ## Quick Start
 
 ### 1. Deploy the Example Agent
 
-Deploy [`examples/agent/main.py`](examples/agent/main.py) — a small Strands agent with one tool that tells the current time — with the [AgentCore CLI](https://github.com/aws/agentcore-cli):
+Deploy [`examples/agent/main.py`](examples/agent/main.py) — a small Strands agent with tools that tell the current time and generate images — with the [AgentCore CLI](https://github.com/aws/agentcore-cli):
 
 ```sh
 agentcore create --name WeltExample --framework Strands --model-provider Bedrock --memory none
 cd WeltExample
 
 curl -o app/WeltExample/main.py https://raw.githubusercontent.com/iwamot/welt/main/examples/agent/main.py
-uv add --project app/WeltExample welt-io
+uv add --project app/WeltExample welt-io strands-agents-tools
 
 agentcore deploy
 ```
 
-The example agent uses the Strands default model — currently an Anthropic Claude model — so enable access for it in the Amazon Bedrock console, in the region you deployed to.
+The example agent uses the Strands default model — currently an Anthropic Claude model — so enable access for it in the Amazon Bedrock console, in the region you deployed to. To try image generation too, also enable access for the Stability AI image models, in us-west-2 — the [`generate_image`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/generate_image.py) tool defaults to Stable Image Core but may pick another.
 
 ### 2. Create a Slack App
 
@@ -57,7 +57,7 @@ docker run -it \
 
 ### 5. Say Hello!
 
-Invite the bot to a channel (`/invite @Welt`) and mention it, or send it a DM. Welt streams the agent's reply into the thread — ask for the current time and you'll see tool use too.
+Invite the bot to a channel (`/invite @Welt`) and mention it, or send it a DM. Welt streams the agent's reply into the thread — ask for the current time and you'll see tool use too. Ask it to draw something, and the generated image is uploaded into the thread.
 
 Once you're comfortable, swap in your own Strands agent: keep the [`welt-io`](https://github.com/iwamot/welt-io) adaptation from the example and point `AGENT_ARN` at your deployment.
 
@@ -72,6 +72,10 @@ Optional environment variables, all with working defaults:
 | `LOG_LEVEL` | `INFO` | Logging level for the whole process. |
 | `REPLY_FAILURE_TEXT` | `:warning: Failed to reply. Please check the app logs.` | Message posted to the thread when replying fails. |
 | `SLACK_STREAM_BUFFER_SIZE` | `256` | Markdown characters buffered before each streaming update; larger values mean fewer Slack API calls. |
+
+## Supported Versions
+
+While Welt is still 0.x, it shares minor versions with [welt-io](https://github.com/iwamot/welt-io): the supported pairing for Welt v0.Y is a welt-io 0.Y release, so upgrade them together. Other combinations may work, but come with no guarantee.
 
 ## Other Ways to Run
 

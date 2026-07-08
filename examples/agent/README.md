@@ -7,7 +7,8 @@ The example agent for Welt's [Quick Start](../../README.md#quick-start).
 | Package | Role |
 |---------|------|
 | [Bedrock AgentCore SDK](https://github.com/aws/bedrock-agentcore-sdk-python) | Serves the endpoint |
-| [Strands Agents](https://github.com/strands-agents/sdk-python) | Runs the model and the `current_time` tool |
+| [Strands Agents](https://github.com/strands-agents/sdk-python) | Runs the model and the tools |
+| [Strands Agents Tools](https://github.com/strands-agents/tools) | Provides the `generate_image` tool |
 | [welt-io](https://github.com/iwamot/welt-io) | Adapts the wire to Welt |
 
 ## Why welt-io?
