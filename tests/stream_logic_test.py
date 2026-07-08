@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+
 from app.stream_logic import (
+    FileOutput,
     StreamError,
     TextDelta,
     ToolResult,
@@ -92,6 +95,39 @@ def test_tool_result_with_missing_fields():
     assert parse_stream_event({"tool_result": {}}) == ToolResult(
         tool_use_id=None, error=False
     )
+
+
+def test_file_event_is_file_output():
+    data = b"\x89PNG\r\n\x1a\n"
+    event = {
+        "file": {
+            "name": "image.png",
+            "bytes": base64.b64encode(data).decode("ascii"),
+        }
+    }
+
+    assert parse_stream_event(event) == FileOutput(name="image.png", data=data)
+
+
+def test_file_event_with_missing_name_is_ignored():
+    encoded = base64.b64encode(b"data").decode("ascii")
+
+    assert parse_stream_event({"file": {"bytes": encoded}}) is None
+    assert parse_stream_event({"file": {"name": "", "bytes": encoded}}) is None
+    assert parse_stream_event({"file": {"name": 1, "bytes": encoded}}) is None
+
+
+def test_file_event_with_missing_or_malformed_bytes_is_ignored():
+    assert parse_stream_event({"file": {"name": "image.png"}}) is None
+    assert parse_stream_event({"file": {"name": "image.png", "bytes": b"raw"}}) is None
+    assert (
+        parse_stream_event({"file": {"name": "image.png", "bytes": "not base64!"}})
+        is None
+    )
+
+
+def test_non_dict_file_event_is_ignored():
+    assert parse_stream_event({"file": "not a dict"}) is None
 
 
 def test_reasoning_event_is_ignored():

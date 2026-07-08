@@ -4,12 +4,14 @@ An AgentCore Runtime agent yields Strands `stream_async` event dicts, which
 the Runtime emits as SSE (`data: {json}\\n\\n`). A managed harness returns a
 typed event stream (`contentBlockDelta` / `contentBlockStart` /
 `runtimeClientError`) instead. Both dialects are parsed into the same small
-render model — a text delta, a tool-use indicator, or a stream error — and
-everything else is ignored.
+render model — a text delta, a tool-use indicator, a generated file, or a
+stream error — and everything else is ignored.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from dataclasses import dataclass
 
@@ -38,13 +40,21 @@ class ToolResult:
 
 
 @dataclass(frozen=True)
+class FileOutput:
+    """A file the agent generated, to upload to the thread."""
+
+    name: str
+    data: bytes
+
+
+@dataclass(frozen=True)
 class StreamError:
     """An error the AgentCore Runtime SDK reported mid-stream."""
 
     message: str
 
 
-RenderEvent = TextDelta | ToolUse | ToolResult | StreamError
+RenderEvent = TextDelta | ToolUse | ToolResult | FileOutput | StreamError
 
 
 def parse_sse_data_line(line: str) -> dict | None:
@@ -81,17 +91,19 @@ def parse_stream_event(event: dict) -> RenderEvent | None:
     A `data` string is assistant text; a `current_tool_use` dict is a tool
     invocation (name for the indicator); a `tool_result` dict closes that
     indicator (the agent derives it from the Strands tool-result message,
-    keeping only the toolUseId and status); an `error` string is the AgentCore
-    Runtime SDK reporting that the agent raised mid-stream. Reasoning,
-    citations, lifecycle, and the final result carry no key we render, so they
-    map to None.
+    keeping only the toolUseId and status); a `file` dict is a generated file
+    (the agent base64-encodes the raw bytes for the JSON wire — the inbound
+    file encoding in reverse); an `error` string is the AgentCore Runtime SDK
+    reporting that the agent raised mid-stream. Reasoning, citations,
+    lifecycle, and the final result carry no key we render, so they map to
+    None.
 
     Args:
         event (dict): One decoded Strands stream event.
 
     Returns:
-        RenderEvent | None: A text delta, a tool use, a tool result, an
-            error, or None.
+        RenderEvent | None: A text delta, a tool use, a tool result, a
+            generated file, an error, or None.
     """
     data = event.get("data")
     if isinstance(data, str) and data:
@@ -111,10 +123,35 @@ def parse_stream_event(event: dict) -> RenderEvent | None:
             tool_use_id=tool_use_id if isinstance(tool_use_id, str) else None,
             error=tool_result.get("status") == "error",
         )
+    file = event.get("file")
+    if isinstance(file, dict):
+        return _parse_file_output(file)
     error = event.get("error")
     if isinstance(error, str):
         return StreamError(message=error)
     return None
+
+
+def _parse_file_output(file: dict) -> FileOutput | None:
+    """
+    Decode a `file` event's base64 bytes into an upload-ready render event.
+
+    Args:
+        file (dict): The `file` value of a stream event.
+
+    Returns:
+        FileOutput | None: The named file content, or None when the name or
+            the base64 payload is missing or malformed.
+    """
+    name = file.get("name")
+    data = file.get("bytes")
+    if not isinstance(name, str) or not name or not isinstance(data, str):
+        return None
+    try:
+        decoded = base64.b64decode(data, validate=True)
+    except binascii.Error:
+        return None
+    return FileOutput(name=name, data=decoded)
 
 
 def parse_harness_event(event: dict) -> RenderEvent | None:
