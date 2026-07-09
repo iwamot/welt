@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  Welt on AWS Lambda: the Slack Events API frontend for AgentCore agents.
+  Deploy with the AWS SAM CLI (see docs/lambda.md).
+
+Parameters:
+  FunctionName:
+    Type: String
+    Default: welt
+    # A fixed name lets the self-invoke policy below reference the function
+    # without a circular dependency on the function resource itself.
+    Description: Name of the Lambda function.
+  SlackBotToken:
+    Type: String
+    NoEcho: true
+    Description: Slack bot token (xoxb-...).
+  SlackSigningSecret:
+    Type: String
+    NoEcho: true
+    Description: Slack signing secret (Basic Information > Signing Secret).
+  AgentArn:
+    Type: String
+    Description: ARN of the AgentCore Runtime agent or managed harness to invoke.
+
+Resources:
+  WeltFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      # The Makefile packages an explicit file list; SAM's built-in Python
+      # builder would copy the whole repository instead.
+      BuildMethod: makefile
+    Properties:
+      FunctionName: !Ref FunctionName
+      Description: Slack frontend for AI agents on Amazon Bedrock AgentCore Runtime.
+      CodeUri: .
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.14
+      MemorySize: 512
+      # Execution is bounded by Lambda's 15-minute cap; give replies all of it.
+      Timeout: 900
+      FunctionUrlConfig:
+        # Slack requests are authenticated by signature verification with the
+        # signing secret, not by the Function URL.
+        AuthType: NONE
+      Environment:
+        Variables:
+          SLACK_BOT_TOKEN: !Ref SlackBotToken
+          SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
+          AGENT_ARN: !Ref AgentArn
+      Policies:
+        - Statement:
+            # Bolt acks each event within Slack's 3-second window and
+            # re-invokes this same function to run the lazy listener.
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${FunctionName}
+            - Effect: Allow
+              Action:
+                - bedrock-agentcore:InvokeAgentRuntime
+                # Welt passes runtimeUserId, which needs the ForUser action.
+                - bedrock-agentcore:InvokeAgentRuntimeForUser
+                - bedrock-agentcore:InvokeHarness
+              Resource:
+                - !Ref AgentArn
+                # Runtime agents are invoked through an endpoint subresource.
+                - !Sub ${AgentArn}/*
+
+Outputs:
+  FunctionUrl:
+    Description: Slack Events API request URL for the app manifest.
+    Value: !GetAtt WeltFunctionUrl.FunctionUrl
