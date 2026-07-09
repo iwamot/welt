@@ -31,7 +31,7 @@ dev = [
     # examples/agent is a standalone deployable, but its dependencies are
     # installed here too so `ty check` covers it without skips.
     "bedrock-agentcore==1.17.0",
-    "strands-agents==1.45.0",
+    "strands-agents==1.46.0",
 ]
 
 [tool.uv]
