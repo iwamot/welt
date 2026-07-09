@@ -9,7 +9,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# Lambda packaging artifacts (README deployment steps)
-/package/
-/requirements-lambda.txt
-/welt-lambda.zip
+# Lambda deployment artifacts (docs/lambda.md)
+/.aws-sam/
+/samconfig.toml

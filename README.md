@@ -79,7 +79,7 @@ While Welt is still 0.x, it shares minor versions with [welt-io](https://github.
 
 ## Other Ways to Run
 
-- [Running Welt on AWS Lambda](docs/lambda.md) — serve Welt on Lambda instead of a resident container.
+- [Running Welt on AWS Lambda](docs/lambda.md) — serve Welt on Lambda instead of a resident container: no always-on process, no cost while idle.
 - [Chatting with an AgentCore harness](docs/harness.md) — point `AGENT_ARN` at a managed harness instead of your own agent code.
 
 ## Contributing
