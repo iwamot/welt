@@ -4,7 +4,7 @@
 
 **A Slack frontend for AI agents on Amazon Bedrock AgentCore.**
 
-![Welt streaming an agent reply into a Slack thread](docs/images/streaming-demo.png)
+![Welt streaming an agent reply into a Slack thread, paused on an approval question with buttons and a text field](docs/images/interrupt-question.png)
 
 Welt forwards conversations to your agent on AgentCore and streams the reply back into the Slack thread.
 

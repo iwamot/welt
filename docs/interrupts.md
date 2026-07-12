@@ -49,6 +49,8 @@ A structured reason carries `message` plus `options` (choice buttons), `input` (
 
 With both, the buttons render above the field, and whichever answer comes first settles the question — all of its widgets retire into the receipt together.
 
+![A question with both widgets in a Slack thread: Approve and Cancel buttons above a free-text field](images/interrupt-question.png)
+
 Matching is all-or-nothing: one malformed field (or any unknown key) drops the whole reason to the fallback rendering — no partial repair. The shapes are frozen at these fields; emoji, confirm dialogs, URLs and the like are beyond Welt's abstraction and will not be added.
 
 The default widgets are the `y` (**Approve**, primary) and `n` (**Deny**) buttons plus a free-text field, so any question stays answerable whatever its reason looks like. The button values are `y` / `n` because common approval evaluators (such as the default one of Strands' HumanInTheLoop) understand them without configuration.
@@ -58,6 +60,8 @@ Bodies longer than Slack's 3000-character section limit are clipped with an elli
 ## Behavior details
 
 - **Who can answer**: anyone who can see the thread — the trust boundary is channel membership. The answered question's widgets are replaced with a context-line receipt — `“answer” — answered by name` — carrying the button's label or the submitted text.
+
+  ![The same question answered: the widgets replaced with the receipt “Approve” — answered by iwamot](images/interrupt-receipt.png)
 - **Multiple questions**: one stop can carry several. Welt renders them all in one message and resumes only after every one is answered — there is no partial resume. A resumed run may stop again; the round trip just repeats.
 - **Double answers**: an answered question loses its widgets, so it cannot be answered twice. A duplicate that slips in before the widgets retire (a double press, or a double Enter in the text field) resumes nothing and puts the resume notice under the questions; the first answer's reply still arrives. Answers landing at the same instant on different questions can rarely lose one; its widgets stay visible, so just answer again.
 - **Expiry**: Welt sets no deadline — an answer always just attempts the resume, and when the run can no longer continue, a notice appears under the questions. How long a run stays resumable is between the agent and its runtime.
