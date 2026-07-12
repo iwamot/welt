@@ -34,4 +34,6 @@ The contract: a generated file is one `file` event on the reply stream —
 
 — where `name` is the upload filename (extension included) and `bytes` is the base64-encoded content. Welt uploads each one into the thread, where it appears alongside the streamed reply. An adapter emits these for you: with welt-io, the files a tool returns become `file` events automatically — see its documentation.
 
+![An agent-generated image uploaded into the Slack thread alongside the streamed reply](images/file-upload.png)
+
 **Size limit**: a `file` event travels as one streamed chunk, and AgentCore Runtime caps a response chunk at 10 MB — going over kills the stream. With base64's 4/3 growth, the practical ceiling is roughly 7 MB of raw file. There is no slicing protocol — for anything bigger, have the agent put the file somewhere else (for example S3) and reply with a link instead.
