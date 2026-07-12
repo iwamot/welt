@@ -4,9 +4,10 @@ Two invoke paths share one render-event surface, picked by the configured
 ARN: an AgentCore Runtime agent goes through `invoke_agent_runtime` (JSON
 payload in, SSE of Strands events out), a managed harness through
 `invoke_harness` (typed Converse-shaped messages in, a typed event stream
-out). boto3 is synchronous, so the blocking invoke call and each blocking
-read of the response are pushed to a worker thread to keep the event loop
-free.
+out). The Runtime path carries two payload envelopes — `messages` for a
+conversation turn, `interrupt_responses` to resume an interrupted run.
+boto3 is synchronous, so the blocking invoke call and each blocking read of
+the response are pushed to a worker thread to keep the event loop free.
 """
 
 from __future__ import annotations
@@ -105,7 +106,40 @@ def stream_agent_events(
         )
     return _stream_runtime_events(
         agent_arn=agent_arn,
-        messages=messages,
+        payload={"messages": messages},
+        session_id=session_id,
+        user_id=user_id,
+    )
+
+
+def stream_agent_resume_events(
+    *,
+    agent_arn: str,
+    interrupt_responses: dict,
+    session_id: str,
+    user_id: str,
+) -> AsyncIterator[RenderEvent]:
+    """
+    Resume an interrupted run with the collected answers.
+
+    Always the Runtime path: interrupts only ever come from a runtime
+    agent, so this is only reached for one (a press on a button left over
+    from an earlier runtime target after AGENT_ARN moved to a harness
+    simply fails, surfacing through the usual reply-failure route).
+
+    Args:
+        agent_arn (str): The ARN of the AgentCore Runtime agent to resume.
+        interrupt_responses (dict): The collected answers, one value per
+            interrupt id (`interrupt_logic.build_interrupt_responses`).
+        session_id (str): The runtimeSessionId the interrupted run used.
+        user_id (str): The runtimeUserId (the presser's verified identity).
+
+    Returns:
+        AsyncIterator[RenderEvent]: The resumed reply's render events.
+    """
+    return _stream_runtime_events(
+        agent_arn=agent_arn,
+        payload={"interrupt_responses": interrupt_responses},
         session_id=session_id,
         user_id=user_id,
     )
@@ -114,11 +148,11 @@ def stream_agent_events(
 async def _stream_runtime_events(
     *,
     agent_arn: str,
-    messages: list[Message],
+    payload: dict,
     session_id: str,
     user_id: str,
 ) -> AsyncIterator[RenderEvent]:
-    payload = json.dumps({"messages": messages}).encode("utf-8")
+    payload_bytes = json.dumps(payload).encode("utf-8")
 
     def invoke() -> dict:
         return _get_client().invoke_agent_runtime(
@@ -127,7 +161,7 @@ async def _stream_runtime_events(
             runtimeUserId=user_id,
             contentType="application/json",
             accept="text/event-stream",
-            payload=payload,
+            payload=payload_bytes,
         )
 
     response = await asyncio.to_thread(invoke)

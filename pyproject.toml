@@ -22,23 +22,25 @@ dependencies = [
     "boto3==1.43.46",
 ]
 
-[project.optional-dependencies]
+# The dev group is included by `uv sync` and `uv run` by default (and
+# excluded from the container by `uv sync --no-dev`), so a plain
+# `uv run main.py` works for local development.
+[dependency-groups]
 dev = [
+    # botocore's login credential provider (`aws login` sessions) needs the
+    # CRT; deployed runtimes authenticate with an IAM role instead.
+    "awscrt==0.35.0",
     "pip-licenses==5.5.5",
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
-    # examples/agent is a standalone deployable, but its dependencies are
-    # installed here too so `ty check` covers it without skips.
-    "bedrock-agentcore==1.18.0",
-    "strands-agents==1.47.0",
 ]
 
 [tool.uv]
 exclude-newer = "1 day"
 
 [tool.ruff]
-include = ["*.py", "app/**/*.py", "examples/**/*.py", "tests/**/*.py"]
+include = ["*.py", "app/**/*.py", "tests/**/*.py"]
 
 [tool.ruff.lint]
 extend-select = [

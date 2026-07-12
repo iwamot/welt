@@ -27,9 +27,6 @@ def test_required_variables_and_defaults():
     assert result.slack_stream_buffer_size == 256
     assert result.file_input_modalities == ()
     assert result.agent_manages_history is False
-    assert result.reply_failure_text == (
-        ":warning: Failed to reply. Please check the app logs."
-    )
     assert result.boot_warnings == ()
 
 
@@ -41,7 +38,6 @@ def test_overrides_are_applied():
             "SLACK_STREAM_BUFFER_SIZE": "1024",
             "FILE_INPUT_MODALITIES": "image,document",
             "AGENT_MANAGES_HISTORY": "true",
-            "REPLY_FAILURE_TEXT": ":warning: 返信に失敗しました。",
         }
     )
 
@@ -49,15 +45,6 @@ def test_overrides_are_applied():
     assert result.slack_stream_buffer_size == 1024
     assert result.file_input_modalities == ("image", "document")
     assert result.agent_manages_history is True
-    assert result.reply_failure_text == ":warning: 返信に失敗しました。"
-
-
-def test_empty_reply_failure_text_falls_back_to_the_default():
-    result = load_env({**_REQUIRED, "REPLY_FAILURE_TEXT": ""})
-
-    assert result.reply_failure_text == (
-        ":warning: Failed to reply. Please check the app logs."
-    )
 
 
 @pytest.mark.parametrize("missing", ["AGENT_ARN", "SLACK_BOT_TOKEN"])

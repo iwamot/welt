@@ -5,6 +5,8 @@ from slack_bolt.authorization import AuthorizeResult
 from slack_bolt.context.base_context import BaseContext
 
 from app.bolt_logic import (
+    INTERRUPT_ACTION_PATTERN,
+    INTERRUPT_ACTION_PREFIX,
     determine_thread_ts_to_reply,
     extract_user_id_from_context,
     has_read_files_scope,
@@ -15,6 +17,20 @@ from app.bolt_logic import (
     keep_newest_replies,
     should_skip_event,
 )
+
+
+@pytest.mark.parametrize(
+    "action_id, expected",
+    [
+        (INTERRUPT_ACTION_PREFIX + "0", True),
+        (INTERRUPT_ACTION_PREFIX, True),
+        ("other_action", False),
+        ("x_" + INTERRUPT_ACTION_PREFIX + "0", False),
+        ("", False),
+    ],
+)
+def test_interrupt_action_pattern(action_id: str, expected: bool):
+    assert (INTERRUPT_ACTION_PATTERN.search(action_id) is not None) is expected
 
 
 @pytest.mark.parametrize(

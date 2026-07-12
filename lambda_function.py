@@ -25,6 +25,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 
 from app import bolt_listeners
 from app.agent_service import init_client
+from app.bolt_logic import INTERRUPT_ACTION_PATTERN
 from app.bolt_middlewares import before_authorize_http
 from app.env import Env, load_env, require_env
 
@@ -101,7 +102,21 @@ def create_bolt_app(env: Env, signing_secret: str) -> App:
             )
         )
 
+    def respond_to_interrupt_action(
+        context: BoltContext, body: dict, payload: dict
+    ) -> None:
+        client = AsyncWebClient(token=env.slack_bot_token)
+        client.retry_handlers.append(AsyncRateLimitErrorRetryHandler(max_retry_count=2))
+        asyncio.run(
+            bolt_listeners.respond_to_interrupt_action(
+                env=env, context=context, body=body, payload=payload, client=client
+            )
+        )
+
     app.event("message")(ack=just_ack, lazy=[respond_to_new_post])
+    app.action(INTERRUPT_ACTION_PATTERN)(
+        ack=just_ack, lazy=[respond_to_interrupt_action]
+    )
     return app
 
 

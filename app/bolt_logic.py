@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 
 from slack_bolt.authorization.authorize_result import AuthorizeResult
 from slack_bolt.context.base_context import BaseContext
 from slack_bolt.request.payload_utils import is_event
+
+# The action_id prefix of the buttons Welt attaches to an agent interrupt;
+# the block_actions listener subscribes to every action carrying it. Bolt
+# matches a Pattern with `search`, so the prefix is anchored.
+INTERRUPT_ACTION_PREFIX = "welt_interrupt_"
+INTERRUPT_ACTION_PATTERN = re.compile("^" + re.escape(INTERRUPT_ACTION_PREFIX))
 
 
 def is_retried_request(headers: Mapping[str, Sequence[str]]) -> bool:
