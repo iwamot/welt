@@ -18,6 +18,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 
 from app import bolt_listeners
 from app.agent_service import init_client
+from app.bolt_logic import INTERRUPT_ACTION_PATTERN
 from app.bolt_middlewares import before_authorize
 from app.env import Env, load_env, require_env
 
@@ -33,7 +34,12 @@ async def main() -> None:
     """
     env = load_env(os.environ)
     slack_app_token = require_env(os.environ, "SLACK_APP_TOKEN")
-    logging.basicConfig(level=env.log_level)
+    # Timestamps matter here: unlike Lambda, where CloudWatch stamps every
+    # line, a local terminal shows only what the format carries.
+    logging.basicConfig(
+        level=env.log_level,
+        format="%(asctime)s %(levelname)s:%(name)s:%(message)s",
+    )
     for warning in env.boot_warnings:
         logger.warning(warning)
     init_client(region_name=env.agent_region)
@@ -75,7 +81,17 @@ def create_bolt_app(env: Env) -> AsyncApp:
             env=env, context=context, payload=payload, client=client
         )
 
+    async def respond_to_interrupt_action(
+        context: AsyncBoltContext, body: dict, payload: dict, client: AsyncWebClient
+    ) -> None:
+        await bolt_listeners.respond_to_interrupt_action(
+            env=env, context=context, body=body, payload=payload, client=client
+        )
+
     app.event("message")(ack=just_ack, lazy=[respond_to_new_post])
+    app.action(INTERRUPT_ACTION_PATTERN)(
+        ack=just_ack, lazy=[respond_to_interrupt_action]
+    )
     return app
 
 

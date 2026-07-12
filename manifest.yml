@@ -12,12 +12,13 @@ oauth_config:
   scopes:
     bot:
       - channels:history
+      - chat:write
+      - files:read
+      - files:write
       - groups:history
       - im:history
       - mpim:history
-      - files:read
-      - chat:write
-      - files:write
+      - users:read
 settings:
   event_subscriptions:
     bot_events:
@@ -25,4 +26,6 @@ settings:
       - message.groups
       - message.im
       - message.mpim
+  interactivity:
+    is_enabled: true
   socket_mode_enabled: true

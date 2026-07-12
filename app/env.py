@@ -14,8 +14,6 @@ from dataclasses import dataclass
 from app.agent_logic import is_harness_arn, parse_arn_region
 from app.slack_file_logic import Modality, parse_file_input_modalities
 
-_DEFAULT_REPLY_FAILURE_TEXT = ":warning: Failed to reply. Please check the app logs."
-
 
 @dataclass(frozen=True)
 class Env:
@@ -45,9 +43,6 @@ class Env:
     # only the messages the agent has not seen yet instead of the whole
     # thread, which the agent would otherwise duplicate.
     agent_manages_history: bool
-    # The message posted to the thread when replying fails. Static text only:
-    # error details stay in the log, so they never leak into the channel.
-    reply_failure_text: str
     # Warnings collected during validation: Runtime-only settings that a
     # harness target cannot honor, which Welt ignores. The entry points log
     # these once logging is configured (load_env runs before that, because
@@ -109,10 +104,6 @@ def load_env(environ: Mapping[str, str]) -> Env:
         slack_stream_buffer_size=_get_int(environ, "SLACK_STREAM_BUFFER_SIZE", 256),
         file_input_modalities=file_input_modalities,
         agent_manages_history=agent_manages_history,
-        # An empty value could not be posted to Slack, so it means "use the
-        # default" rather than failing on the first error.
-        reply_failure_text=environ.get("REPLY_FAILURE_TEXT")
-        or _DEFAULT_REPLY_FAILURE_TEXT,
         boot_warnings=tuple(boot_warnings),
     )
 

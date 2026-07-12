@@ -48,13 +48,22 @@ class FileOutput:
 
 
 @dataclass(frozen=True)
+class Interrupt:
+    """A question the agent stopped on, to render as buttons in the thread."""
+
+    id: str
+    name: str
+    reason: object
+
+
+@dataclass(frozen=True)
 class StreamError:
     """An error the AgentCore Runtime SDK reported mid-stream."""
 
     message: str
 
 
-RenderEvent = TextDelta | ToolUse | ToolResult | FileOutput | StreamError
+RenderEvent = TextDelta | ToolUse | ToolResult | FileOutput | Interrupt | StreamError
 
 
 def parse_sse_data_line(line: str) -> dict | None:
@@ -93,10 +102,12 @@ def parse_stream_event(event: dict) -> RenderEvent | None:
     indicator (the agent derives it from the Strands tool-result message,
     keeping only the toolUseId and status); a `file` dict is a generated file
     (the agent base64-encodes the raw bytes for the JSON wire — the inbound
-    file encoding in reverse); an `error` string is the AgentCore Runtime SDK
-    reporting that the agent raised mid-stream. Reasoning, citations,
-    lifecycle, and the final result carry no key we render, so they map to
-    None.
+    file encoding in reverse); an `interrupt` dict is a question the agent
+    stopped on (id and name must be strings; the reason stays whatever JSON
+    value the agent sent, since interpreting it is the rendering layer's
+    job); an `error` string is the AgentCore Runtime SDK reporting that the
+    agent raised mid-stream. Reasoning, citations, lifecycle, and the final
+    result carry no key we render, so they map to None.
 
     Args:
         event (dict): One decoded Strands stream event.
@@ -126,10 +137,34 @@ def parse_stream_event(event: dict) -> RenderEvent | None:
     file = event.get("file")
     if isinstance(file, dict):
         return _parse_file_output(file)
+    interrupt = event.get("interrupt")
+    if isinstance(interrupt, dict):
+        return _parse_interrupt(interrupt)
     error = event.get("error")
     if isinstance(error, str):
         return StreamError(message=error)
     return None
+
+
+def _parse_interrupt(interrupt: dict) -> Interrupt | None:
+    """
+    Validate an `interrupt` event's envelope into a render event.
+
+    Args:
+        interrupt (dict): The `interrupt` value of a stream event.
+
+    Returns:
+        Interrupt | None: The interrupt, or None when the id or name is not
+            a string (the reason is kept as-is — any JSON value is legal,
+            and the rendering layer decides how to show it).
+    """
+    interrupt_id = interrupt.get("id")
+    name = interrupt.get("name")
+    if not isinstance(interrupt_id, str) or not interrupt_id:
+        return None
+    if not isinstance(name, str):
+        return None
+    return Interrupt(id=interrupt_id, name=name, reason=interrupt.get("reason"))
 
 
 def _parse_file_output(file: dict) -> FileOutput | None:

@@ -10,23 +10,20 @@ Welt forwards conversations to your agent on AgentCore and streams the reply bac
 
 You focus on the agent — model, tools, MCP, memory. Welt handles the Slack side — tokens, event intake, history fetch, streaming rendering, and uploading the files your agent generates.
 
+The pieces line up like this:
+
+```
+Slack ⇄ Welt ⇄ AgentCore Runtime
+                └── your agent, using an adapter for Welt's JSON wire
+```
+
+[welt-io](https://github.com/iwamot/welt-io) is the first adapter (Python + Strands), and more may follow — see [Agent-Side Adapters](#agent-side-adapters). The Quick Start below deploys welt-io's example agent.
+
 ## Quick Start
 
 ### 1. Deploy the Example Agent
 
-Deploy [`examples/agent/main.py`](examples/agent/main.py) — a small Strands agent with tools that tell the current time and generate images — with the [AgentCore CLI](https://github.com/aws/agentcore-cli):
-
-```sh
-agentcore create --name WeltExample --framework Strands --model-provider Bedrock --memory none
-cd WeltExample
-
-curl -o app/WeltExample/main.py https://raw.githubusercontent.com/iwamot/welt/main/examples/agent/main.py
-uv add --project app/WeltExample welt-io strands-agents-tools
-
-agentcore deploy
-```
-
-The example agent uses the Strands default model — currently an Anthropic Claude model — so enable access for it in the Amazon Bedrock console, in the region you deployed to. To try image generation too, also enable access for the Stability AI image models, in us-west-2 — the [`generate_image`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/generate_image.py) tool defaults to Stable Image Core but may pick another.
+Deploy [welt-io's example agent](https://github.com/iwamot/welt-io/tree/main/examples/agent) by following its README, and note the agent runtime ARN; step 3 needs it.
 
 ### 2. Create a Slack App
 
@@ -34,9 +31,16 @@ The example agent uses the Strands default model — currently an Anthropic Clau
 - In **Basic Information > App-Level Tokens**, generate a token with the `connections:write` scope and copy it (`xapp-1-...`).
 - In **Install App**, install the app to your workspace and copy the **Bot User OAuth Token** (`xoxb-...`).
 
-### 3. Create a `.env` File
+### 3. Get the Code and Create a `.env` File
 
-Save your Slack tokens and the agent runtime ARN from step 1 in a `.env` file ([`.env.sample`](.env.sample) lists all supported variables):
+Clone this repository:
+
+```sh
+git clone https://github.com/iwamot/welt.git
+cd welt
+```
+
+Then save your Slack tokens and the agent runtime ARN from step 1 in a `.env` file at the repository root ([`.env.sample`](.env.sample) lists all supported variables):
 
 ```sh
 SLACK_APP_TOKEN=xapp-1-...
@@ -44,22 +48,28 @@ SLACK_BOT_TOKEN=xoxb-...
 AGENT_ARN=arn:aws:bedrock-agentcore:...
 ```
 
-### 4. Run Welt Container
+### 4. Run Welt
 
-Pass your current AWS credentials alongside the `.env` file — the identity needs permission to invoke your agent:
+Welt picks up your AWS credentials the standard SDK way — environment variables, `AWS_PROFILE`, an SSO session — and the identity needs permission to invoke your agent. Run Welt with [uv](https://docs.astral.sh/uv/):
 
 ```sh
-docker run -it \
-  --env-file .env \
-  --env-file <(aws configure export-credentials --format env-no-export) \
-  ghcr.io/iwamot/welt:latest
+uv run --env-file .env main.py
 ```
 
 ### 5. Say Hello!
 
-Invite the bot to a channel (`/invite @Welt`) and mention it, or send it a DM. Welt streams the agent's reply into the thread — ask for the current time and you'll see tool use too. Ask it to draw something, and the generated image is uploaded into the thread.
+Invite the bot to a channel (`/invite @Welt`) and mention it, or send it a DM. Welt streams the agent's reply into the thread; the example agent's README suggests things to try.
 
-Once you're comfortable, swap in your own Strands agent: keep the [`welt-io`](https://github.com/iwamot/welt-io) adaptation from the example and point `AGENT_ARN` at your deployment.
+Once you're comfortable, swap in your own agent and point `AGENT_ARN` at its deployment — see [Agent-Side Adapters](#agent-side-adapters) below.
+
+## Features
+
+- [Files](docs/files.md) — file input from Slack uploads, and uploading the files your agent generates back into the thread.
+- [Interrupts](docs/interrupts.md) — human-in-the-loop: a tool (or hook) that interrupts pauses the run and becomes buttons or a text field in the thread; the answer resumes it.
+
+## Agent-Side Adapters
+
+The wire between Welt and the agent is plain JSON; each feature page above documents its part of the contract. [welt-io](https://github.com/iwamot/welt-io) adapts it for Python + Strands agents and carries the example agent — other stacks can implement the contract directly.
 
 ## Configuration
 
@@ -68,18 +78,22 @@ Optional environment variables, all with working defaults:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_MANAGES_HISTORY` | `false` | What Welt sends per turn: the full thread history (`false`), or only the new messages (`true`). |
-| `FILE_INPUT_MODALITIES` | (empty) | Comma-separated Converse modalities to accept from Slack uploads (`image`, `document`, `video`); empty disables file input. Allow only modalities your model accepts. |
+| `FILE_INPUT_MODALITIES` | (empty) | Comma-separated modalities to accept from Slack uploads; empty disables file input. See [Files](docs/files.md). |
 | `LOG_LEVEL` | `INFO` | Logging level for the whole process. |
-| `REPLY_FAILURE_TEXT` | `:warning: Failed to reply. Please check the app logs.` | Message posted to the thread when replying fails. |
 | `SLACK_STREAM_BUFFER_SIZE` | `256` | Markdown characters buffered before each streaming update; larger values mean fewer Slack API calls. |
-
-## Supported Versions
-
-While Welt is still 0.x, it shares minor versions with [welt-io](https://github.com/iwamot/welt-io): the supported pairing for Welt v0.Y is a welt-io 0.Y release, so upgrade them together. Other combinations may work, but come with no guarantee.
 
 ## Other Ways to Run
 
-- [Running Welt on AWS Lambda](docs/lambda.md) — serve Welt on Lambda instead of a resident container: no always-on process, no cost while idle.
+- Running the container image — the same Socket Mode process, packaged as [`ghcr.io/iwamot/welt`](https://github.com/iwamot/welt/pkgs/container/welt) for hosting on AWS. Supply the same variables as the `.env` file through the hosting environment (an ECS task definition, ...) and let its IAM role provide the AWS credentials:
+
+  ```sh
+  docker run -it \
+    -e SLACK_APP_TOKEN=xapp-1-... \
+    -e SLACK_BOT_TOKEN=xoxb-... \
+    -e AGENT_ARN=arn:aws:bedrock-agentcore:... \
+    ghcr.io/iwamot/welt:latest
+  ```
+- [Running Welt on AWS Lambda](docs/lambda.md) — serve Welt on Lambda instead of a resident process: no always-on process, no cost while idle.
 - [Chatting with an AgentCore harness](docs/harness.md) — point `AGENT_ARN` at a managed harness instead of your own agent code.
 
 ## Contributing

@@ -4,6 +4,7 @@ import base64
 
 from app.stream_logic import (
     FileOutput,
+    Interrupt,
     StreamError,
     TextDelta,
     ToolResult,
@@ -128,6 +129,42 @@ def test_file_event_with_missing_or_malformed_bytes_is_ignored():
 
 def test_non_dict_file_event_is_ignored():
     assert parse_stream_event({"file": "not a dict"}) is None
+
+
+def test_interrupt_event_is_interrupt():
+    event = {
+        "interrupt": {
+            "id": "i-1",
+            "name": "deploy-approval",
+            "reason": {"message": "Deploy?", "options": [{"value": "y"}]},
+        }
+    }
+
+    assert parse_stream_event(event) == Interrupt(
+        id="i-1",
+        name="deploy-approval",
+        reason={"message": "Deploy?", "options": [{"value": "y"}]},
+    )
+
+
+def test_interrupt_without_reason_keeps_none():
+    event = {"interrupt": {"id": "i-1", "name": "deploy-approval"}}
+
+    assert parse_stream_event(event) == Interrupt(
+        id="i-1", name="deploy-approval", reason=None
+    )
+
+
+def test_interrupt_with_malformed_id_or_name_is_ignored():
+    assert parse_stream_event({"interrupt": {"id": 1, "name": "n"}}) is None
+    assert parse_stream_event({"interrupt": {"id": "", "name": "n"}}) is None
+    assert parse_stream_event({"interrupt": {"name": "n"}}) is None
+    assert parse_stream_event({"interrupt": {"id": "i-1", "name": 1}}) is None
+    assert parse_stream_event({"interrupt": {"id": "i-1"}}) is None
+
+
+def test_non_dict_interrupt_event_is_ignored():
+    assert parse_stream_event({"interrupt": "not a dict"}) is None
 
 
 def test_reasoning_event_is_ignored():

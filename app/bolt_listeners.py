@@ -5,8 +5,11 @@ history, invokes the AgentCore agent, and renders the streamed reply through
 the chat streaming API (chat.startStream / appendStream / stopStream via
 `RotatingChatStream`, which rolls the reply over to a follow-up message when
 Slack's per-message length limit is hit). One Slack thread is one
-conversation and one agent session, in channels and DMs alike. All
-classification and formatting is delegated to the pure `*_logic` modules.
+conversation and one agent session, in channels and DMs alike. A run that
+stops on interrupts gets a button message in the thread, and the presses
+come back here as block_actions, resuming the agent once every question is
+answered. All classification and formatting is delegated to the pure
+`*_logic` modules.
 """
 
 from __future__ import annotations
@@ -15,10 +18,11 @@ import logging
 from collections.abc import AsyncIterator
 
 from slack_bolt.context.base_context import BaseContext
+from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
 from app.agent_logic import build_runtime_session_id, build_runtime_user_id
-from app.agent_service import stream_agent_events
+from app.agent_service import stream_agent_events, stream_agent_resume_events
 from app.bolt_logic import (
     MAX_THREAD_REPLIES,
     determine_thread_ts_to_reply,
@@ -31,6 +35,19 @@ from app.bolt_logic import (
 )
 from app.converse_logic import ContentBlock, build_messages
 from app.env import Env
+from app.interrupt_logic import (
+    append_context_notice,
+    build_collection_metadata,
+    build_interrupt_blocks,
+    build_interrupt_responses,
+    initial_collection_state,
+    is_fully_answered,
+    parse_action_answer,
+    parse_collection_state,
+    pick_display_name,
+    record_answer,
+    replace_answered_blocks,
+)
 from app.message_logic import build_tool_use_task_chunk
 from app.slack_file_logic import (
     MAX_BYTES_BY_MODALITY,
@@ -42,6 +59,7 @@ from app.slack_file_service import fetch_file_blocks
 from app.slack_stream_service import RotatingChatStream
 from app.stream_logic import (
     FileOutput,
+    Interrupt,
     RenderEvent,
     StreamError,
     ToolResult,
@@ -49,6 +67,16 @@ from app.stream_logic import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Fixed texts of Welt's own messages — deliberately not configurable, so
+# the frame around the conversation reads the same on every deployment.
+REPLY_FAILURE_TEXT = ":warning: Failed to reply. Please check the app logs."
+RESUME_FAILURE_TEXT = (
+    ":warning: Could not resume the agent. The approval may have "
+    "expired or already been answered — ask again if needed."
+)
+# The plain-text summary of the button message (notifications, accessibility).
+INTERRUPT_PROMPT_TEXT = "The agent needs your decision to continue."
 
 
 async def respond_to_new_post(
@@ -127,7 +155,7 @@ async def respond_to_new_post(
             buffer_size=env.slack_stream_buffer_size,
         )
         await streamer.start()
-        await stream_agent_reply_to_slack(
+        await stream_reply_with_interrupt_prompt(
             client=client,
             channel_id=context.channel_id,
             thread_ts=reply_thread_ts,
@@ -141,7 +169,6 @@ async def respond_to_new_post(
             thread_ts=reply_thread_ts,
             error=e,
             streamer=streamer,
-            failure_text=env.reply_failure_text,
         )
 
 
@@ -323,7 +350,7 @@ async def fetch_file_blocks_for_replies(
     return await fetch_file_blocks(selections, bot_token=context.bot_token)
 
 
-async def stream_agent_reply_to_slack(
+async def stream_reply_with_interrupt_prompt(
     *,
     client: AsyncWebClient,
     channel_id: str,
@@ -332,16 +359,13 @@ async def stream_agent_reply_to_slack(
     events: AsyncIterator[RenderEvent],
 ) -> None:
     """
-    Render the agent's event stream into the streaming reply.
+    Render the reply stream, then prompt for its interrupts, if any.
 
-    Text deltas append markdown (buffered by the SDK helper); tool use is
-    shown as task_update chunks, marked complete (or error) when its tool
-    result arrives — or when the next text or tool does, for agents that do
-    not send tool results. A generated file is uploaded to the thread, where
-    it appears as its own message alongside the streamed reply. The message
-    is finalized with chat.stopStream. A reply that outgrows Slack's
-    per-message limit continues in a follow-up message (see
-    `RotatingChatStream`).
+    A run that stopped for human input ends its stream with interrupt
+    events; after the streamed reply is finalized, they become one
+    button-carrying message in the thread, its metadata holding the
+    collection state the button presses fill in. The interrupt names go to
+    the log only — the rendering is derived from each reason.
 
     Args:
         client (AsyncWebClient): The Slack Web API client.
@@ -353,10 +377,69 @@ async def stream_agent_reply_to_slack(
     Returns:
         None
     """
+    interrupts = await stream_agent_reply_to_slack(
+        client=client,
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        streamer=streamer,
+        events=events,
+    )
+    if not interrupts:
+        return
+    logger.info(
+        "Prompting for %d interrupt(s): %s",
+        len(interrupts),
+        [interrupt.name for interrupt in interrupts],
+    )
+    await client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        text=INTERRUPT_PROMPT_TEXT,
+        blocks=build_interrupt_blocks(interrupts),
+        metadata=build_collection_metadata(initial_collection_state(interrupts)),
+    )
+
+
+async def stream_agent_reply_to_slack(
+    *,
+    client: AsyncWebClient,
+    channel_id: str,
+    thread_ts: str,
+    streamer: RotatingChatStream,
+    events: AsyncIterator[RenderEvent],
+) -> list[Interrupt]:
+    """
+    Render the agent's event stream into the streaming reply.
+
+    Text deltas append markdown (buffered by the SDK helper); tool use is
+    shown as task_update chunks, marked complete (or error) when its tool
+    result arrives — or when the next text or tool does, for agents that do
+    not send tool results. A generated file is uploaded to the thread, where
+    it appears as its own message alongside the streamed reply. The message
+    is finalized with chat.stopStream. A reply that outgrows Slack's
+    per-message limit continues in a follow-up message (see
+    `RotatingChatStream`). Interrupt events are collected and handed back —
+    posting the button prompt is the caller's move, after the reply is
+    finalized.
+
+    Args:
+        client (AsyncWebClient): The Slack Web API client.
+        channel_id (str): The ID of the channel being replied in.
+        thread_ts (str): The thread timestamp being replied to.
+        streamer (RotatingChatStream): The stream helper for this reply.
+        events (AsyncIterator[RenderEvent]): Parsed agent stream events.
+
+    Returns:
+        list[Interrupt]: The interrupts the run stopped on, stream order.
+    """
     active_tool: ToolUse | None = None
+    interrupts: list[Interrupt] = []
     async for event in events:
         if isinstance(event, StreamError):
             raise RuntimeError(f"The agent reported an error: {event.message}")
+        if isinstance(event, Interrupt):
+            interrupts.append(event)
+            continue
         if isinstance(event, FileOutput):
             await client.files_upload_v2(
                 channel=channel_id,
@@ -386,6 +469,7 @@ async def stream_agent_reply_to_slack(
     await streamer.stop(
         chunks=_tool_chunks(completed=active_tool) if active_tool else None
     )
+    return interrupts
 
 
 def _tool_chunks(
@@ -414,6 +498,238 @@ def _tool_chunks(
     return chunks
 
 
+async def respond_to_interrupt_action(
+    *,
+    env: Env,
+    context: BaseContext,
+    body: dict,
+    payload: dict,
+    client: AsyncWebClient,
+) -> None:
+    """
+    Respond to a press of an interrupt button.
+
+    Records the answer into the button message's metadata and replaces the
+    pressed button row with a visible receipt (which doubles as the guard
+    against double presses). Once every interrupt of the stop is answered,
+    the collected answers resume the agent on the same session and the
+    continued reply streams into the thread as usual. Anyone who can see
+    the thread may press — the trust boundary is channel membership; the
+    presser is recorded in the metadata and shown next to the receipt.
+    Expiry is optimistic: the resume is always attempted, and one that
+    fails outright (the agent's session is gone, or AGENT_ARN moved
+    elsewhere) puts a notice under the buttons; a failure after the reply
+    started streaming takes the usual reply-failure route.
+
+    Near-simultaneous presses on different rows can lose one metadata
+    update; accepted for now — pressing the lost row again recovers. So
+    is a duplicate answer to one question (a double press, or a double
+    Enter in the text field): both handlers see the pre-answer message,
+    so the duplicate's resume loses against the consumed interrupt and
+    puts the resume-failure notice under the questions — misleading only
+    until the first resume's reply streams in. Deduplicating would take
+    state outside the message (Welt keeps none), so the notice's wording
+    covers it instead.
+
+    Args:
+        env (Env): The validated configuration.
+        context (BaseContext): The Bolt context object.
+        body (dict): The full block_actions payload (for the message).
+        payload (dict): The pressed action from the block_actions payload.
+        client (AsyncWebClient): The Slack Web API client.
+
+    Returns:
+        None
+    """
+    if context.channel_id is None:
+        raise ValueError("context.channel_id cannot be None")
+    user_id = extract_user_id_from_context(context)
+    if user_id is None:
+        raise ValueError("User ID could not be determined from context")
+
+    message = body.get("message")
+    if not isinstance(message, dict):
+        logger.warning("Ignoring a button press that carried no message")
+        return
+    message_ts = message.get("ts")
+    thread_ts = message.get("thread_ts")
+    if not isinstance(message_ts, str) or not isinstance(thread_ts, str):
+        logger.warning("Ignoring a button press without message timestamps")
+        return
+
+    streamer = None
+    try:
+        action_id = payload.get("action_id")
+        pressed = parse_action_answer(payload)
+        if not isinstance(action_id, str) or pressed is None:
+            logger.warning("Ignoring a button press with an unreadable action")
+            return
+        interrupt_id, choice = pressed
+        original_blocks = message.get("blocks")
+        if not isinstance(original_blocks, list):
+            logger.warning("Ignoring a button press whose message has no blocks")
+            return
+
+        state = parse_collection_state(message)
+        if state is None:
+            # Some surfaces omit metadata from the block_actions payload;
+            # re-fetch the message with metadata included.
+            state = parse_collection_state(
+                await fetch_button_message(
+                    client=client,
+                    channel_id=context.channel_id,
+                    message_ts=message_ts,
+                )
+            )
+        if state is None:
+            logger.warning("Ignoring a button press without collection metadata")
+            return
+        updated = record_answer(
+            state, interrupt_id=interrupt_id, value=choice, user_id=user_id
+        )
+        if updated is None:
+            logger.warning("Ignoring a button press for an unknown interrupt")
+            return
+
+        presser_name = await fetch_display_name(client=client, user_id=user_id)
+        replaced_blocks = replace_answered_blocks(
+            original_blocks,
+            action_id=action_id,
+            presser_name=presser_name,
+            answer=choice,
+        )
+        await client.chat_update(
+            channel=context.channel_id,
+            ts=message_ts,
+            text=INTERRUPT_PROMPT_TEXT,
+            blocks=replaced_blocks if replaced_blocks is not None else original_blocks,
+            metadata=build_collection_metadata(updated),
+        )
+
+        if not is_fully_answered(updated):
+            return
+        events = stream_agent_resume_events(
+            agent_arn=env.agent_arn,
+            interrupt_responses=build_interrupt_responses(updated),
+            session_id=build_runtime_session_id(
+                team_id=context.team_id,
+                channel_id=context.channel_id,
+                thread_ts=thread_ts,
+            ),
+            user_id=build_runtime_user_id(team_id=context.team_id, user_id=user_id),
+        )
+        # Peek at the first event before opening a streaming reply: a resume
+        # that cannot happen at all (the agent's session is gone, AGENT_ARN
+        # moved elsewhere) fails right here, and gets a notice under the
+        # buttons instead of an empty reply bubble. A failure after the
+        # reply started streaming takes the usual reply-failure route below.
+        first: RenderEvent | None = None
+        try:
+            first = await anext(aiter(events), None)
+        except Exception:
+            logger.error("Failed to resume the agent", exc_info=True)
+        if first is None or isinstance(first, StreamError):
+            if isinstance(first, StreamError):
+                logger.error("The agent reported an error on resume: %s", first.message)
+            await client.chat_update(
+                channel=context.channel_id,
+                ts=message_ts,
+                text=INTERRUPT_PROMPT_TEXT,
+                blocks=append_context_notice(
+                    replaced_blocks if replaced_blocks is not None else original_blocks,
+                    RESUME_FAILURE_TEXT,
+                ),
+                metadata=build_collection_metadata(updated),
+            )
+            return
+        streamer = RotatingChatStream(
+            client,
+            channel=context.channel_id,
+            thread_ts=thread_ts,
+            recipient_team_id=context.team_id,
+            recipient_user_id=user_id,
+            buffer_size=env.slack_stream_buffer_size,
+        )
+        await streamer.start()
+        await stream_reply_with_interrupt_prompt(
+            client=client,
+            channel_id=context.channel_id,
+            thread_ts=thread_ts,
+            streamer=streamer,
+            events=_with_first(first, events),
+        )
+    except Exception as e:
+        await report_reply_failure(
+            client=client,
+            channel_id=context.channel_id,
+            thread_ts=thread_ts,
+            error=e,
+            streamer=streamer,
+        )
+
+
+async def _with_first(
+    first: RenderEvent, rest: AsyncIterator[RenderEvent]
+) -> AsyncIterator[RenderEvent]:
+    # Reattach the peeked-at first event in front of the remaining stream.
+    yield first
+    async for event in rest:
+        yield event
+
+
+async def fetch_button_message(
+    *,
+    client: AsyncWebClient,
+    channel_id: str,
+    message_ts: str,
+) -> dict | None:
+    """
+    Fetch a button message with its metadata included.
+
+    Args:
+        client (AsyncWebClient): The Slack Web API client.
+        channel_id (str): The ID of the channel holding the message.
+        message_ts (str): The timestamp of the button message.
+
+    Returns:
+        dict | None: The message, or None if it could not be found.
+    """
+    response = await client.conversations_replies(
+        channel=channel_id,
+        ts=message_ts,
+        latest=message_ts,
+        inclusive=True,
+        limit=1,
+        include_all_metadata=True,
+    )
+    messages: list = response.get("messages", [])
+    for message in messages:
+        if isinstance(message, dict) and message.get("ts") == message_ts:
+            return message
+    return None
+
+
+async def fetch_display_name(*, client: AsyncWebClient, user_id: str) -> str:
+    """
+    Fetch a user's display name for the pressed-button receipt.
+
+    Args:
+        client (AsyncWebClient): The Slack Web API client.
+        user_id (str): The presser's Slack user ID.
+
+    Returns:
+        str: The display name, falling back to the raw user ID when the
+            profile is unreadable (for example, an install that predates
+            the users:read scope).
+    """
+    try:
+        response = await client.users_info(user=user_id)
+    except SlackApiError:
+        logger.warning("Could not fetch the presser's profile", exc_info=True)
+        return user_id
+    return pick_display_name(response.get("user")) or user_id
+
+
 async def report_reply_failure(
     *,
     client: AsyncWebClient,
@@ -421,7 +737,6 @@ async def report_reply_failure(
     thread_ts: str,
     error: Exception,
     streamer: RotatingChatStream | None,
-    failure_text: str,
 ) -> None:
     """
     Report a failed reply: full details to the log, a generic note to Slack.
@@ -437,8 +752,6 @@ async def report_reply_failure(
         thread_ts (str): The thread timestamp to reply to.
         error (Exception): The failure to log.
         streamer (RotatingChatStream | None): The stream helper, if created.
-        failure_text (str): The message posted to the thread
-            (`Env.reply_failure_text`).
 
     Returns:
         None
@@ -451,12 +764,12 @@ async def report_reply_failure(
     )
     if streamer is not None and streamer.ts is not None:
         try:
-            await streamer.stop(markdown_text=failure_text)
+            await streamer.stop(markdown_text=REPLY_FAILURE_TEXT)
             return
         except Exception:
             logger.debug("Failed to stop the stream", exc_info=True)
     await client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
-        text=failure_text,
+        text=REPLY_FAILURE_TEXT,
     )
