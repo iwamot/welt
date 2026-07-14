@@ -21,10 +21,13 @@ class Env:
 
     # An AgentCore Runtime agent ARN or a managed harness ARN; Welt picks the
     # invoke API (invoke_agent_runtime / invoke_harness) by the resource kind.
-    agent_arn: str
+    # None (AGENT_ARN unset) is local mode, for development: Welt invokes an
+    # agent served locally by the AgentCore SDK over plain HTTP instead.
+    agent_arn: str | None
     # The agent's region, taken from the ARN; the bedrock-agentcore client
-    # targets it directly, so no separate region setting exists.
-    agent_region: str
+    # targets it directly, so no separate region setting exists. None exactly
+    # when `agent_arn` is None — local mode has no region.
+    agent_region: str | None
     # The Slack bot token (xoxb) for Web API calls. Transport credentials
     # (the Socket Mode xapp token, the HTTP signing secret) belong to the
     # entry points, which read them with `require_env`.
@@ -57,6 +60,11 @@ def load_env(environ: Mapping[str, str]) -> Env:
     Args:
         environ (Mapping[str, str]): The process environment (`os.environ`).
 
+    An unset (or empty, like the other optional variables) AGENT_ARN is
+    local mode: the agent runs on this machine instead of AgentCore, so no
+    ARN exists to configure. A forgotten AGENT_ARN thus boots into local
+    mode — the startup check on the local agent is what catches it.
+
     Settings that only apply to a Runtime agent (FILE_INPUT_MODALITIES,
     AGENT_MANAGES_HISTORY) are ignored for a harness target, each reported
     as a `boot_warnings` entry instead of failing the boot: the harness
@@ -70,14 +78,18 @@ def load_env(environ: Mapping[str, str]) -> Env:
         ValueError: If a required variable is missing or a value is
             malformed.
     """
-    agent_arn = require_env(environ, "AGENT_ARN")
-    agent_region = parse_arn_region(agent_arn)
-    if agent_region is None:
-        raise ValueError(
-            "AGENT_ARN must be a full AgentCore ARN including a "
-            f"region, got {agent_arn!r}"
-        )
-    harness = is_harness_arn(agent_arn)
+    agent_arn = environ.get("AGENT_ARN") or None
+    if agent_arn is None:
+        agent_region = None
+        harness = False
+    else:
+        agent_region = parse_arn_region(agent_arn)
+        if agent_region is None:
+            raise ValueError(
+                "AGENT_ARN must be a full AgentCore ARN including a "
+                f"region, got {agent_arn!r}"
+            )
+        harness = is_harness_arn(agent_arn)
     # boot_warnings stays in ascending variable-name order.
     boot_warnings: list[str] = []
     agent_manages_history = _get_bool(environ, "AGENT_MANAGES_HISTORY", harness)

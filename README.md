@@ -17,13 +17,15 @@ Slack ⇄ Welt ⇄ AgentCore Runtime
                 └── your agent, using an adapter for Welt's JSON wire
 ```
 
-Adapters exist for Strands Agents (Python) and Mastra (TypeScript), and more may follow — see [Agent-Side Adapters](#agent-side-adapters). The Quick Start below deploys welt-io's example agent.
+Adapters exist for Strands Agents (Python) and Mastra (TypeScript), and more may follow — see [Agent-Side Adapters](#agent-side-adapters). The Quick Start below runs welt-io's example agent.
 
 ## Quick Start
 
-### 1. Deploy the Example Agent
+The Quick Start runs everything on your machine — the example agent in one terminal, Welt in another. Nothing is deployed yet; the only AWS dependency is the Bedrock model the agent calls. Deploying to AgentCore is the last step, once the conversation works.
 
-Deploy [welt-io's example agent](https://github.com/iwamot/welt-io/tree/main/examples/agent) by following its README, and note the agent runtime ARN; step 3 needs it. (Prefer TypeScript? [welt-io-mastra's example agent](https://github.com/iwamot/welt-io-mastra/tree/main/examples/agent) works just as well here.)
+### 1. Run the Example Agent
+
+Run [welt-io's example agent](https://github.com/iwamot/welt-io/tree/main/examples/agent) on your machine by following its README's **Run Locally** section; it serves on `http://localhost:8080`. (Prefer TypeScript? [welt-io-mastra's example agent](https://github.com/iwamot/welt-io-mastra/tree/main/examples/agent) works just as well here.)
 
 ### 2. Create a Slack App
 
@@ -40,25 +42,38 @@ git clone https://github.com/iwamot/welt.git
 cd welt
 ```
 
-Then save your Slack tokens and the agent runtime ARN from step 1 in a `.env` file at the repository root ([`.env.sample`](.env.sample) lists all supported variables):
+Then save your Slack tokens in a `.env` file at the repository root ([`.env.sample`](.env.sample) lists all supported variables):
 
 ```sh
 SLACK_APP_TOKEN=xapp-1-...
 SLACK_BOT_TOKEN=xoxb-...
-AGENT_ARN=arn:aws:bedrock-agentcore:...
 ```
+
+With no `AGENT_ARN` set, Welt runs in local mode: it forwards conversations to the agent at `http://localhost:8080`.
 
 ### 4. Run Welt
 
-Welt picks up your AWS credentials the standard SDK way — environment variables, `AWS_PROFILE`, an SSO session — and the identity needs permission to invoke your agent. Run Welt with [uv](https://docs.astral.sh/uv/):
+Run Welt with [uv](https://docs.astral.sh/uv/):
 
 ```sh
 uv run --env-file .env main.py
 ```
 
+It checks that the local agent is listening, then connects to Slack. In local mode Welt itself needs no AWS credentials — the agent process is the one calling AWS.
+
 ### 5. Say Hello!
 
 Invite the bot to a channel (`/invite @Welt`) and mention it, or send it a DM. Welt streams the agent's reply into the thread; the example agent's README suggests things to try.
+
+### 6. Deploy the Agent to AgentCore
+
+When the local loop works, move the agent to AgentCore Runtime: deploy it by following the example's README (its **Deploy** section), then point `AGENT_ARN` at the agent runtime ARN from the deploy output and restart Welt:
+
+```sh
+AGENT_ARN=arn:aws:bedrock-agentcore:...
+```
+
+Welt now picks up your AWS credentials the standard SDK way — environment variables, `AWS_PROFILE`, an SSO session — and the identity needs permission to invoke your agent.
 
 Once you're comfortable, swap in your own agent and point `AGENT_ARN` at its deployment — see [Agent-Side Adapters](#agent-side-adapters) below.
 
@@ -82,8 +97,9 @@ Optional environment variables, all with working defaults:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `AGENT_ARN` | (unset) | The AgentCore Runtime agent — or managed harness — to invoke. Unset is local mode, for development: Welt invokes the agent at `http://localhost:8080` instead. |
 | `AGENT_MANAGES_HISTORY` | `false` | What Welt sends per turn: the full thread history (`false`), or only the new messages (`true`). |
-| `FILE_INPUT_MODALITIES` | (empty) | Comma-separated modalities to accept from Slack uploads; empty disables file input. See [Files](docs/files.md). |
+| `FILE_INPUT_MODALITIES` | (unset) | Comma-separated modalities to accept from Slack uploads; unset disables file input. See [Files](docs/files.md). |
 | `LOG_LEVEL` | `INFO` | Logging level for the whole process. |
 | `SLACK_STREAM_BUFFER_SIZE` | `256` | Markdown characters buffered before each streaming update; larger values mean fewer Slack API calls. |
 
