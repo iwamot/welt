@@ -17,13 +17,13 @@ Slack ⇄ Welt ⇄ AgentCore Runtime
                 └── your agent, using an adapter for Welt's JSON wire
 ```
 
-[welt-io](https://github.com/iwamot/welt-io) is the first adapter (Python + Strands), and more may follow — see [Agent-Side Adapters](#agent-side-adapters). The Quick Start below deploys welt-io's example agent.
+Adapters exist for Strands Agents (Python) and Mastra (TypeScript), and more may follow — see [Agent-Side Adapters](#agent-side-adapters). The Quick Start below deploys welt-io's example agent.
 
 ## Quick Start
 
 ### 1. Deploy the Example Agent
 
-Deploy [welt-io's example agent](https://github.com/iwamot/welt-io/tree/main/examples/agent) by following its README, and note the agent runtime ARN; step 3 needs it.
+Deploy [welt-io's example agent](https://github.com/iwamot/welt-io/tree/main/examples/agent) by following its README, and note the agent runtime ARN; step 3 needs it. (Prefer TypeScript? [welt-io-mastra's example agent](https://github.com/iwamot/welt-io-mastra/tree/main/examples/agent) works just as well here.)
 
 ### 2. Create a Slack App
 
@@ -69,7 +69,12 @@ Once you're comfortable, swap in your own agent and point `AGENT_ARN` at its dep
 
 ## Agent-Side Adapters
 
-The wire between Welt and the agent is plain JSON; each feature page above documents its part of the contract. [welt-io](https://github.com/iwamot/welt-io) adapts it for Python + Strands agents and carries the example agent — other stacks can implement the contract directly.
+The wire between Welt and the agent is plain JSON; each feature page above documents its part of the contract. Each adapter maps the wire to one framework's types and carries its own example agent:
+
+- [welt-io](https://github.com/iwamot/welt-io) — Strands Agents (Python)
+- [welt-io-mastra](https://github.com/iwamot/welt-io-mastra) — Mastra (TypeScript)
+
+Other stacks can implement the contract directly.
 
 ## Configuration
 

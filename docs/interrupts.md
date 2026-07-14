@@ -9,7 +9,7 @@ run stops with questions → Welt posts them in the thread
   → the reply streams on as usual
 ```
 
-Welt keeps no state of its own — the collection lives in the question message's metadata. The events and payloads are under [Wire contract](#wire-contract); an adapter such as [welt-io](https://github.com/iwamot/welt-io) does the wiring, and its documentation covers raising interrupts from agent code.
+Welt keeps no state of its own — the collection lives in the question message's metadata. The events and payloads are under [Wire contract](#wire-contract); an [agent-side adapter](../README.md#agent-side-adapters) does the wiring, and its documentation covers raising interrupts from agent code.
 
 ## The reason contract
 
@@ -89,7 +89,7 @@ Inbound, the resume payload replaces `messages` with `interrupt_responses` — t
 }
 ```
 
-A plain mapping of question id to the chosen or typed answer, deliberately framework-neutral: turning it into the framework's own resume input is the adapter's job (welt-io does it for Strands).
+A plain mapping of question id to the chosen or typed answer, deliberately framework-neutral: turning it into the framework's own resume input is the adapter's job (welt-io does it for Strands Agents, welt-io-mastra for Mastra).
 
 ## Limitations
 
