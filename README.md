@@ -84,7 +84,7 @@ Once you're comfortable, swap in your own agent and point `AGENT_ARN` at its dep
 
 ## Agent-Side Adapters
 
-The wire between Welt and the agent is plain JSON; each feature page above documents its part of the contract. Each adapter maps the wire to one framework's types and carries its own example agent:
+The wire between Welt and the agent is plain JSON, and the [Wire Contract](docs/wire.md) is its full specification. Each adapter maps the wire to one framework's types and carries its own example agent:
 
 - [welt-io](https://github.com/iwamot/welt-io) — Strands Agents (Python)
 - [welt-io-mastra](https://github.com/iwamot/welt-io-mastra) — Mastra (TypeScript)
