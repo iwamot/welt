@@ -14,7 +14,7 @@ Allow only the modalities your model accepts — see [supported foundation model
 
 Welt downloads the files attached to the thread and embeds them into the Converse-shaped `messages` as image/document/video blocks, newest first.
 
-The contract: JSON cannot carry raw bytes, so each embedded block holds a base64 string in its `source.bytes` slot, and the agent side decodes it before the messages reach the model. An adapter such as [welt-io](https://github.com/iwamot/welt-io) handles the decoding — see its documentation.
+The contract: JSON cannot carry raw bytes, so each embedded block holds a base64 string in its `source.bytes` slot, and the agent side decodes it before the messages reach the model. An [agent-side adapter](../README.md#agent-side-adapters) handles the decoding — see its documentation.
 
 The embedding stays within the Converse limits:
 
@@ -32,7 +32,7 @@ The contract: a generated file is one `file` event on the reply stream —
 {"file": {"name": "chart.png", "bytes": "<base64>"}}
 ```
 
-— where `name` is the upload filename (extension included) and `bytes` is the base64-encoded content. Welt uploads each one into the thread, where it appears alongside the streamed reply. An adapter emits these for you: with welt-io, the files a tool returns become `file` events automatically — see its documentation.
+— where `name` is the upload filename (extension included) and `bytes` is the base64-encoded content. Welt uploads each one into the thread, where it appears alongside the streamed reply. An [agent-side adapter](../README.md#agent-side-adapters) emits these for you — see its documentation for how a tool attaches a file.
 
 ![An agent-generated image uploaded into the Slack thread alongside the streamed reply](images/file-upload.png)
 
