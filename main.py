@@ -37,9 +37,13 @@ async def main() -> None:
     # Timestamps matter here: unlike Lambda, where CloudWatch stamps every
     # line, a local terminal shows only what the format carries.
     logging.basicConfig(
-        level=env.log_level,
+        level=env.deps_log_level,
         format="%(asctime)s %(levelname)s:%(name)s:%(message)s",
     )
+    # LOG_LEVEL applies to Welt's own loggers only; the root level above
+    # (DEPS_LOG_LEVEL) covers the dependencies. See Env.deps_log_level.
+    logging.getLogger("app").setLevel(env.log_level)
+    logger.setLevel(env.log_level)
     for warning in env.boot_warnings:
         logger.warning(warning)
     # No region means no ARN: local mode (see Env.agent_region).

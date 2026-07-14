@@ -62,7 +62,11 @@ def _get_handler() -> SlackRequestHandler:
     env = load_env(os.environ)
     signing_secret = require_env(os.environ, "SLACK_SIGNING_SECRET")
     SlackRequestHandler.clear_all_log_handlers()
-    logging.basicConfig(level=env.log_level)
+    logging.basicConfig(level=env.deps_log_level)
+    # LOG_LEVEL applies to Welt's own loggers only; the root level above
+    # (DEPS_LOG_LEVEL) covers the dependencies. See Env.deps_log_level.
+    logging.getLogger("app").setLevel(env.log_level)
+    logger.setLevel(env.log_level)
     for warning in env.boot_warnings:
         logger.warning(warning)
     # No region means no ARN: local mode (see Env.agent_region). On Lambda
