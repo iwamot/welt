@@ -1,18 +1,22 @@
 """I/O for invoking the agent and streaming its reply.
 
-Two invoke paths share one render-event surface, picked by the configured
+Three invoke paths share one render-event surface, picked by the configured
 ARN: an AgentCore Runtime agent goes through `invoke_agent_runtime` (JSON
 payload in, SSE of Strands events out), a managed harness through
 `invoke_harness` (typed Converse-shaped messages in, a typed event stream
-out). The Runtime path carries two payload envelopes — `messages` for a
+out), and no ARN at all — local mode, for development — through plain HTTP
+to the same `/invocations` + SSE surface the AgentCore SDK serves locally.
+The Runtime and local paths carry two payload envelopes — `messages` for a
 conversation turn, `interrupt_responses` to resume an interrupted run.
-boto3 is synchronous, so the blocking invoke call and each blocking read of
-the response are pushed to a worker thread to keep the event loop free.
+boto3 and http.client are synchronous, so the blocking invoke call and each
+blocking read of the response are pushed to a worker thread to keep the
+event loop free.
 """
 
 from __future__ import annotations
 
 import asyncio
+import http.client
 import json
 import logging
 from collections.abc import AsyncIterator, Iterator
@@ -38,6 +42,18 @@ _client = None
 # layer's job: the read timeout bounds the silence between stream chunks, so
 # a stalled connection dies while a healthy long-running stream keeps going.
 _CLIENT_CONFIG = Config(read_timeout=60)
+
+# Where local mode finds the agent: the AgentCore SDK's local server, which
+# serves the same /invocations + SSE surface as the Runtime, on its default
+# port. http.client (rather than urllib) keeps a developer's HTTP_PROXY out
+# of the way — these requests must reach localhost directly.
+_LOCAL_AGENT_HOST = "localhost"
+_LOCAL_AGENT_PORT = 8080
+LOCAL_AGENT_URL = f"http://{_LOCAL_AGENT_HOST}:{_LOCAL_AGENT_PORT}"
+
+# The socket timeout plays the same role as the boto3 read timeout above:
+# it bounds each blocking read, not the whole reply.
+_LOCAL_TIMEOUT = 60
 
 
 def init_client(*, region_name: str) -> None:
@@ -69,9 +85,43 @@ def _get_client():
     return _client
 
 
+def check_local_agent() -> None:
+    """
+    Verify a local agent is listening, once at startup.
+
+    Local mode's counterpart to `init_client`: an unset AGENT_ARN falls
+    into local mode whether or not that was meant, so probing the SDK
+    server's /ping endpoint before Slack connects turns both mistakes — a
+    forgotten AGENT_ARN, an agent not yet started — into a boot failure
+    that names them, instead of a connection error on the first message.
+
+    Returns:
+        None
+
+    Raises:
+        RuntimeError: If nothing answers at `LOCAL_AGENT_URL`.
+    """
+    connection = http.client.HTTPConnection(
+        _LOCAL_AGENT_HOST, _LOCAL_AGENT_PORT, timeout=5
+    )
+    try:
+        connection.request("GET", "/ping")
+        connection.getresponse().read()
+    except OSError as error:
+        raise RuntimeError(
+            "AGENT_ARN is not set and no local agent is listening at "
+            f"{LOCAL_AGENT_URL} — set AGENT_ARN, or start your agent first"
+        ) from error
+    finally:
+        connection.close()
+    logger.info(
+        "AGENT_ARN is not set — invoking the local agent at %s", LOCAL_AGENT_URL
+    )
+
+
 def stream_agent_events(
     *,
-    agent_arn: str,
+    agent_arn: str | None,
     messages: list[Message],
     session_id: str,
     user_id: str,
@@ -81,8 +131,8 @@ def stream_agent_events(
     Invoke the agent and stream render events parsed from its reply.
 
     Args:
-        agent_arn (str): The ARN of the AgentCore Runtime agent or
-            managed harness to invoke.
+        agent_arn (str | None): The ARN of the AgentCore Runtime agent or
+            managed harness to invoke, or None for the local agent.
         messages (list[Message]): The conversation, Converse-shaped.
         session_id (str): The runtimeSessionId (Slack thread/DM key).
         user_id (str): The runtimeUserId (verified Slack identity).
@@ -97,6 +147,10 @@ def stream_agent_events(
     """
     if agent_manages_history:
         messages = keep_messages_after_last_assistant(messages)
+    if agent_arn is None:
+        return _stream_local_events(
+            payload={"messages": messages}, session_id=session_id
+        )
     if is_harness_arn(agent_arn):
         return _stream_harness_events(
             harness_arn=agent_arn,
@@ -114,7 +168,7 @@ def stream_agent_events(
 
 def stream_agent_resume_events(
     *,
-    agent_arn: str,
+    agent_arn: str | None,
     interrupt_responses: dict,
     session_id: str,
     user_id: str,
@@ -122,13 +176,14 @@ def stream_agent_resume_events(
     """
     Resume an interrupted run with the collected answers.
 
-    Always the Runtime path: interrupts only ever come from a runtime
-    agent, so this is only reached for one (a press on a button left over
-    from an earlier runtime target after AGENT_ARN moved to a harness
+    Never the harness path: interrupts only ever come from a runtime or
+    local agent, so this is only reached for one (a press on a button left
+    over from an earlier runtime target after AGENT_ARN moved to a harness
     simply fails, surfacing through the usual reply-failure route).
 
     Args:
-        agent_arn (str): The ARN of the AgentCore Runtime agent to resume.
+        agent_arn (str | None): The ARN of the AgentCore Runtime agent to
+            resume, or None for the local agent.
         interrupt_responses (dict): The collected answers, one value per
             interrupt id (`interrupt_logic.build_interrupt_responses`).
         session_id (str): The runtimeSessionId the interrupted run used.
@@ -137,9 +192,12 @@ def stream_agent_resume_events(
     Returns:
         AsyncIterator[RenderEvent]: The resumed reply's render events.
     """
+    payload = {"interrupt_responses": interrupt_responses}
+    if agent_arn is None:
+        return _stream_local_events(payload=payload, session_id=session_id)
     return _stream_runtime_events(
         agent_arn=agent_arn,
-        payload={"interrupt_responses": interrupt_responses},
+        payload=payload,
         session_id=session_id,
         user_id=user_id,
     )
@@ -166,6 +224,45 @@ async def _stream_runtime_events(
 
     response = await asyncio.to_thread(invoke)
     lines: Iterator[bytes] = response["response"].iter_lines()
+    async for render_event in _render_events_from_sse_lines(lines):
+        yield render_event
+
+
+async def _stream_local_events(
+    *, payload: dict, session_id: str
+) -> AsyncIterator[RenderEvent]:
+    connection = http.client.HTTPConnection(
+        _LOCAL_AGENT_HOST, _LOCAL_AGENT_PORT, timeout=_LOCAL_TIMEOUT
+    )
+
+    def invoke() -> http.client.HTTPResponse:
+        # The runtimeSessionId travels in the header the SDK's local server
+        # reads; the runtimeUserId has no local counterpart — the SDK exposes
+        # no header for it — so local agents see no caller identity.
+        connection.request(
+            "POST",
+            "/invocations",
+            body=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+                "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": session_id,
+            },
+        )
+        return connection.getresponse()
+
+    try:
+        response = await asyncio.to_thread(invoke)
+        # The response is a file object, so iterating it yields lines.
+        async for render_event in _render_events_from_sse_lines(iter(response)):
+            yield render_event
+    finally:
+        connection.close()
+
+
+async def _render_events_from_sse_lines(
+    lines: Iterator[bytes],
+) -> AsyncIterator[RenderEvent]:
     async for line in _iterate_in_thread(lines):
         decoded_line = line.decode("utf-8")
         event = parse_sse_data_line(decoded_line)

@@ -47,12 +47,18 @@ def test_overrides_are_applied():
     assert result.agent_manages_history is True
 
 
-@pytest.mark.parametrize("missing", ["AGENT_ARN", "SLACK_BOT_TOKEN"])
-def test_missing_required_variable_is_rejected(missing: str):
-    environ = {name: value for name, value in _REQUIRED.items() if name != missing}
+def test_missing_bot_token_is_rejected():
+    with pytest.raises(ValueError, match="SLACK_BOT_TOKEN must be set"):
+        load_env({"AGENT_ARN": _RUNTIME_ARN})
 
-    with pytest.raises(ValueError, match=f"{missing} must be set"):
-        load_env(environ)
+
+@pytest.mark.parametrize("environ", [{}, {"AGENT_ARN": ""}])
+def test_unset_agent_arn_is_local_mode(environ: dict[str, str]):
+    result = load_env({"SLACK_BOT_TOKEN": "xoxb-test", **environ})
+
+    assert result.agent_arn is None
+    assert result.agent_region is None
+    assert result.boot_warnings == ()
 
 
 def test_require_env_returns_the_value():
@@ -67,9 +73,18 @@ def test_require_env_rejects_missing_or_empty_values(environ: dict[str, str]):
         require_env(environ, "SLACK_SIGNING_SECRET")
 
 
-def test_empty_required_variable_is_rejected():
-    with pytest.raises(ValueError, match="AGENT_ARN must be set"):
-        load_env({**_REQUIRED, "AGENT_ARN": ""})
+def test_local_mode_keeps_runtime_only_settings():
+    result = load_env(
+        {
+            "SLACK_BOT_TOKEN": "xoxb-test",
+            "FILE_INPUT_MODALITIES": "image",
+            "AGENT_MANAGES_HISTORY": "true",
+        }
+    )
+
+    assert result.file_input_modalities == ("image",)
+    assert result.agent_manages_history is True
+    assert result.boot_warnings == ()
 
 
 def test_arn_without_region_is_rejected():

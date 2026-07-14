@@ -17,7 +17,7 @@ from slack_sdk.http_retry.builtin_async_handlers import AsyncRateLimitErrorRetry
 from slack_sdk.web.async_client import AsyncWebClient
 
 from app import bolt_listeners
-from app.agent_service import init_client
+from app.agent_service import check_local_agent, init_client
 from app.bolt_logic import INTERRUPT_ACTION_PATTERN
 from app.bolt_middlewares import before_authorize
 from app.env import Env, load_env, require_env
@@ -42,7 +42,11 @@ async def main() -> None:
     )
     for warning in env.boot_warnings:
         logger.warning(warning)
-    init_client(region_name=env.agent_region)
+    # No region means no ARN: local mode (see Env.agent_region).
+    if env.agent_region is None:
+        check_local_agent()
+    else:
+        init_client(region_name=env.agent_region)
 
     app = create_bolt_app(env)
     handler = AsyncSocketModeHandler(app, slack_app_token)
