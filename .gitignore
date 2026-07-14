@@ -9,6 +9,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# Claude Code
+.claude/
+
 # Lambda deployment artifacts (docs/lambda.md)
 /.aws-sam/
 /samconfig.toml
