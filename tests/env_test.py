@@ -24,6 +24,7 @@ def test_required_variables_and_defaults():
     assert result.agent_region == "us-west-2"
     assert result.slack_bot_token == _REQUIRED["SLACK_BOT_TOKEN"]
     assert result.log_level == "INFO"
+    assert result.deps_log_level == "INFO"
     assert result.slack_stream_buffer_size == 256
     assert result.file_input_modalities == ()
     assert result.agent_manages_history is False
@@ -35,6 +36,7 @@ def test_overrides_are_applied():
         {
             **_REQUIRED,
             "LOG_LEVEL": "DEBUG",
+            "DEPS_LOG_LEVEL": "WARNING",
             "SLACK_STREAM_BUFFER_SIZE": "1024",
             "FILE_INPUT_MODALITIES": "image,document",
             "AGENT_MANAGES_HISTORY": "true",
@@ -42,6 +44,7 @@ def test_overrides_are_applied():
     )
 
     assert result.log_level == "DEBUG"
+    assert result.deps_log_level == "WARNING"
     assert result.slack_stream_buffer_size == 1024
     assert result.file_input_modalities == ("image", "document")
     assert result.agent_manages_history is True

@@ -32,8 +32,15 @@ class Env:
     # (the Socket Mode xapp token, the HTTP signing secret) belong to the
     # entry points, which read them with `require_env`.
     slack_bot_token: str
-    # Logging level for the whole process, not just Slack.
+    # Logging level for Welt's own loggers: the `app` package and the entry
+    # points. Dependencies follow `deps_log_level` instead.
     log_level: str
+    # Logging level for everything else — the root logger, which dependency
+    # libraries (botocore, slack_bolt, ...) inherit. Separate from
+    # `log_level` because botocore's DEBUG output includes credential
+    # material (the Authorization header, the string to sign), so raising
+    # Welt's verbosity must not drag the dependencies along.
+    deps_log_level: str
     # Markdown characters buffered in memory before each chat.appendStream
     # call; larger values mean fewer API calls (chat.appendStream is
     # rate-limit Tier 4).
@@ -113,6 +120,7 @@ def load_env(environ: Mapping[str, str]) -> Env:
         agent_region=agent_region,
         slack_bot_token=require_env(environ, "SLACK_BOT_TOKEN"),
         log_level=environ.get("LOG_LEVEL", "INFO"),
+        deps_log_level=environ.get("DEPS_LOG_LEVEL", "INFO"),
         slack_stream_buffer_size=_get_int(environ, "SLACK_STREAM_BUFFER_SIZE", 256),
         file_input_modalities=file_input_modalities,
         agent_manages_history=agent_manages_history,
