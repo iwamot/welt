@@ -15,7 +15,7 @@ The wire rides AgentCore's invoke surface, in one of two modes:
 | Deployed (`AGENT_ARN` is a Runtime agent ARN) | `InvokeAgentRuntime` with the JSON payload | SSE stream |
 | Local (`AGENT_ARN` unset) | `POST http://localhost:8080/invocations`, `Accept: text/event-stream` | SSE stream |
 
-Local mode targets the surface the AgentCore SDK's local server provides — the session id travels in the `X-Amzn-Bedrock-AgentCore-Runtime-Session-Id` header, and Welt probes `GET /ping` at startup.
+Local mode targets the surface the AgentCore SDK's local server provides — the session id travels in the `X-Amzn-Bedrock-AgentCore-Runtime-Session-Id` header. The agent doesn't have to be up when Welt starts; each conversation opens a fresh connection, so the agent can start, stop, or be swapped at any time.
 
 In the reply stream, each event is one `data: {json}` SSE line carrying a JSON object. Anything else on the stream is ignored.
 
