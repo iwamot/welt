@@ -24,7 +24,7 @@ from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from slack_sdk.web.async_client import AsyncWebClient
 
 from app import bolt_listeners
-from app.agent_service import check_local_agent, init_client
+from app.agent_service import init_client, log_local_mode
 from app.bolt_logic import INTERRUPT_ACTION_PATTERN
 from app.bolt_middlewares import before_authorize_http
 from app.env import Env, load_env, require_env
@@ -70,10 +70,10 @@ def _get_handler() -> SlackRequestHandler:
     for warning in env.boot_warnings:
         logger.warning(warning)
     # No region means no ARN: local mode (see Env.agent_region). On Lambda
-    # that can only be a forgotten AGENT_ARN, and the check fails the cold
-    # start with a message that names it.
+    # that can only be a forgotten AGENT_ARN; the log line names it, and
+    # the first invocation fails on the unreachable localhost.
     if env.agent_region is None:
-        check_local_agent()
+        log_local_mode()
     else:
         init_client(region_name=env.agent_region)
     return SlackRequestHandler(app=create_bolt_app(env, signing_secret))

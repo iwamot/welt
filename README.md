@@ -21,19 +21,15 @@ Adapters exist for Strands Agents (Python) and Mastra (TypeScript), and more may
 
 ## Quick Start
 
-The Quick Start runs everything on your machine — the example agent in one terminal, Welt in another. Nothing is deployed yet; the only AWS dependency is the Bedrock model the agent calls. Deploying to AgentCore is the last step, once the conversation works.
+The Quick Start runs everything on your machine — Welt in one terminal, the example agent in another. Nothing is deployed; the only AWS dependency is the Bedrock model the agent calls. Deployment comes after, once the conversation works — see [Deploy the Agent to AgentCore](#deploy-the-agent-to-agentcore).
 
-### 1. Run the Example Agent
-
-Run [welt-io's example agent](https://github.com/iwamot/welt-io/tree/main/examples/agent) on your machine by following its README's **Run Locally** section; it serves on `http://localhost:8080`. (Prefer TypeScript? [welt-io-mastra's example agent](https://github.com/iwamot/welt-io-mastra/tree/main/examples/agent) works just as well here.)
-
-### 2. Create a Slack App
+### 1. Create a Slack App
 
 - Go to <https://api.slack.com/apps> and create a new Slack app from [`manifest.yml`](manifest.yml).
 - In **Basic Information > App-Level Tokens**, generate a token with the `connections:write` scope and copy it (`xapp-1-...`).
 - In **Install App**, install the app to your workspace and copy the **Bot User OAuth Token** (`xoxb-...`).
 
-### 3. Get the Code and Create a `.env` File
+### 2. Get the Code and Create a `.env` File
 
 Clone this repository:
 
@@ -51,7 +47,7 @@ SLACK_BOT_TOKEN=xoxb-...
 
 With no `AGENT_ARN` set, Welt runs in local mode: it forwards conversations to the agent at `http://localhost:8080`.
 
-### 4. Run Welt
+### 3. Run Welt
 
 Run Welt with [uv](https://docs.astral.sh/uv/):
 
@@ -59,13 +55,17 @@ Run Welt with [uv](https://docs.astral.sh/uv/):
 uv run --env-file .env main.py
 ```
 
-It checks that the local agent is listening, then connects to Slack. In local mode Welt itself needs no AWS credentials — the agent process is the one calling AWS.
+It connects to Slack and waits. In local mode Welt itself needs no AWS credentials — the agent process is the one calling AWS.
+
+### 4. Run the Example Agent
+
+In another terminal, run [welt-io's example agent](https://github.com/iwamot/welt-io/tree/main/examples/agent) by following its README's **Run Locally** section; it serves on `http://localhost:8080`, where Welt is pointing. (Prefer TypeScript? [welt-io-mastra's example agent](https://github.com/iwamot/welt-io-mastra/tree/main/examples/agent) works just as well here.)
 
 ### 5. Say Hello!
 
 Invite the bot to a channel (`/invite @Welt`) and mention it, or send it a DM. Welt streams the agent's reply into the thread; the example agent's README suggests things to try.
 
-### 6. Deploy the Agent to AgentCore
+## Deploy the Agent to AgentCore
 
 When the local loop works, move the agent to AgentCore Runtime: deploy it by following the example's README (its **Deploy** section), then point `AGENT_ARN` at the agent runtime ARN from the deploy output and restart Welt:
 

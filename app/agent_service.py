@@ -85,35 +85,20 @@ def _get_client():
     return _client
 
 
-def check_local_agent() -> None:
+def log_local_mode() -> None:
     """
-    Verify a local agent is listening, once at startup.
+    Announce local mode, once at startup.
 
     Local mode's counterpart to `init_client`: an unset AGENT_ARN falls
-    into local mode whether or not that was meant, so probing the SDK
-    server's /ping endpoint before Slack connects turns both mistakes — a
-    forgotten AGENT_ARN, an agent not yet started — into a boot failure
-    that names them, instead of a connection error on the first message.
+    into local mode whether or not that was meant, so this log line names
+    the target URL — the trace to look for when AGENT_ARN was merely
+    forgotten. No probe beyond that: the agent may start, stop, or be
+    swapped while Welt runs, and an unreachable one surfaces as a failed
+    reply.
 
     Returns:
         None
-
-    Raises:
-        RuntimeError: If nothing answers at `LOCAL_AGENT_URL`.
     """
-    connection = http.client.HTTPConnection(
-        _LOCAL_AGENT_HOST, _LOCAL_AGENT_PORT, timeout=5
-    )
-    try:
-        connection.request("GET", "/ping")
-        connection.getresponse().read()
-    except OSError as error:
-        raise RuntimeError(
-            "AGENT_ARN is not set and no local agent is listening at "
-            f"{LOCAL_AGENT_URL} — set AGENT_ARN, or start your agent first"
-        ) from error
-    finally:
-        connection.close()
     logger.info(
         "AGENT_ARN is not set — invoking the local agent at %s", LOCAL_AGENT_URL
     )
