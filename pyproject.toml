@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Takashi Iwamoto", email = "hello@iwamot.com" }]
 dependencies = [
-    "slack-bolt==1.29.0",
+    "slack-bolt==1.30.0",
     # Welt makes Slack Web API calls directly through AsyncWebClient, so it
     # depends on slack-sdk explicitly (not only transitively via slack-bolt).
     "slack-sdk==3.43.0",
