@@ -29,7 +29,7 @@ dependencies = [
 dev = [
     # botocore's login credential provider (`aws login` sessions) needs the
     # CRT; deployed runtimes authenticate with an IAM role instead.
-    "awscrt==0.35.0",
+    "awscrt==0.36.0",
     "pip-licenses==5.5.5",
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
