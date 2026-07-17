@@ -56,6 +56,7 @@ from app.slack_file_logic import (
     select_files_to_fetch,
 )
 from app.slack_file_service import fetch_file_blocks
+from app.slack_reaction_service import WaitingReaction
 from app.slack_stream_service import RotatingChatStream
 from app.stream_logic import (
     FileOutput,
@@ -114,6 +115,7 @@ async def respond_to_new_post(
 
     reply_thread_ts = determine_thread_ts_to_reply(payload)
     streamer = None
+    waiting = None
     try:
         if not (
             is_post_mentioned(context.bot_user_id, payload)
@@ -121,6 +123,10 @@ async def respond_to_new_post(
             or await has_parent_post_mentioned(context, payload, client)
         ):
             return
+        waiting = WaitingReaction(
+            client, channel_id=context.channel_id, message_ts=payload["ts"]
+        )
+        await waiting.add()
         replies = await get_replies(
             client=client,
             payload=payload,
@@ -170,6 +176,9 @@ async def respond_to_new_post(
             error=e,
             streamer=streamer,
         )
+    finally:
+        if waiting is not None:
+            await waiting.clear()
 
 
 # Parent-mention decisions, keyed by (channel, thread_ts): without this,
@@ -558,6 +567,7 @@ async def respond_to_interrupt_action(
         return
 
     streamer = None
+    waiting = None
     try:
         action_id = payload.get("action_id")
         pressed = parse_action_answer(payload)
@@ -569,6 +579,13 @@ async def respond_to_interrupt_action(
         if not isinstance(original_blocks, list):
             logger.warning("Ignoring a button press whose message has no blocks")
             return
+        # Marking the button message right away is the fastest visible
+        # acknowledgment of the press, which softens the double-press
+        # window the docstring describes.
+        waiting = WaitingReaction(
+            client, channel_id=context.channel_id, message_ts=message_ts
+        )
+        await waiting.add()
 
         state = parse_collection_state(message)
         if state is None:
@@ -666,6 +683,9 @@ async def respond_to_interrupt_action(
             error=e,
             streamer=streamer,
         )
+    finally:
+        if waiting is not None:
+            await waiting.clear()
 
 
 async def _with_first(
