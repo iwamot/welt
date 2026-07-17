@@ -160,7 +160,6 @@ async def respond_to_new_post(
             recipient_user_id=user_id,
             buffer_size=env.slack_stream_buffer_size,
         )
-        await streamer.start()
         await stream_reply_with_interrupt_prompt(
             client=client,
             channel_id=context.channel_id,
@@ -425,7 +424,9 @@ async def stream_agent_reply_to_slack(
     result arrives — or when the next text or tool does, for agents that do
     not send tool results. A generated file is uploaded to the thread, where
     it appears as its own message alongside the streamed reply. The message
-    is finalized with chat.stopStream. A reply that outgrows Slack's
+    is finalized with chat.stopStream; a run that rendered nothing (one that
+    stopped on interrupts alone) leaves no streamed message at all. A reply
+    that outgrows Slack's
     per-message limit continues in a follow-up message (see
     `RotatingChatStream`). Interrupt events are collected and handed back —
     posting the button prompt is the caller's move, after the reply is
@@ -667,7 +668,6 @@ async def respond_to_interrupt_action(
             recipient_user_id=user_id,
             buffer_size=env.slack_stream_buffer_size,
         )
-        await streamer.start()
         await stream_reply_with_interrupt_prompt(
             client=client,
             channel_id=context.channel_id,
