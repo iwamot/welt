@@ -18,6 +18,7 @@ oauth_config:
       - groups:history
       - im:history
       - mpim:history
+      - reactions:write
       - users:read
 settings:
   event_subscriptions:
