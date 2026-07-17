@@ -50,6 +50,11 @@ class RotatingChatStream:
     `msg_too_long` the current message is finalized as-is (a normal stop, no
     error shown), a new stream opens in the same thread, and the undelivered
     tail continues there.
+
+    The stream opens lazily, on the first append: a run that delivers
+    nothing to render (a failure before the first token, a stop on
+    interrupts alone) leaves no message behind. The waiting reaction, not
+    an empty stream, is what shows the run is being worked on.
     """
 
     def __init__(
@@ -76,25 +81,6 @@ class RotatingChatStream:
         """The current streamed message's timestamp, if one has started."""
         return self._streamer.ts if self._streamer is not None else None
 
-    async def start(self) -> None:
-        """
-        Open the stream eagerly so the indicator shows before agent output.
-
-        The SDK helper starts the stream lazily on its first buffer flush,
-        which can be many seconds away when the agent runtime cold-starts; an
-        early empty start makes Slack show the streaming indicator right
-        away. Best-effort — if Slack rejects the empty start, the stream
-        simply starts on the first flush as usual.
-
-        Returns:
-            None
-        """
-        self._streamer = await self._new_streamer()
-        try:
-            await self._streamer.append(chunks=[])
-        except SlackApiError:
-            logger.debug("Eager stream start failed", exc_info=True)
-
     async def append(
         self,
         *,
@@ -112,8 +98,10 @@ class RotatingChatStream:
             None
         """
         self._pending.append(_PendingAppend(markdown_text=markdown_text, chunks=chunks))
+        if self._streamer is None:
+            self._streamer = await self._new_streamer()
         try:
-            response = await self._require_streamer().append(
+            response = await self._streamer.append(
                 markdown_text=markdown_text, chunks=chunks
             )
         except SlackApiError as error:
@@ -133,6 +121,10 @@ class RotatingChatStream:
         """
         Finalize the reply, rolling over first if the close would overflow.
 
+        A reply that never opened and closes with no new content is a no-op:
+        the SDK helper's stop would start a stream just to close it, leaving
+        an empty message in the thread.
+
         Args:
             markdown_text (str | None): Markdown to append before closing.
             chunks (list[dict] | None): Streaming chunks to close with.
@@ -140,11 +132,13 @@ class RotatingChatStream:
         Returns:
             None
         """
+        if self._streamer is None and markdown_text is None and not chunks:
+            return
         self._pending.append(_PendingAppend(markdown_text=markdown_text, chunks=chunks))
+        if self._streamer is None:
+            self._streamer = await self._new_streamer()
         try:
-            await self._require_streamer().stop(
-                markdown_text=markdown_text, chunks=chunks
-            )
+            await self._streamer.stop(markdown_text=markdown_text, chunks=chunks)
         except SlackApiError as error:
             if not _is_message_too_long(error):
                 raise
@@ -192,5 +186,5 @@ class RotatingChatStream:
 
     def _require_streamer(self) -> AsyncChatStream:
         if self._streamer is None:
-            raise RuntimeError("RotatingChatStream.start() has not been called")
+            raise RuntimeError("The stream has not been opened by an append")
         return self._streamer
