@@ -306,19 +306,12 @@ async def get_thread_replies(
         list[dict]: The newest replies in the thread, in chronological order.
     """
     replies: list[dict] = []
-    cursor: str | None = None
-    while True:
-        response = await client.conversations_replies(
-            channel=channel_id,
-            ts=thread_ts,
-            limit=1000,
-            cursor=cursor,
-        )
-        replies.extend(response.get("messages", []))
-        metadata = response.get("response_metadata")
-        cursor = metadata.get("next_cursor") if isinstance(metadata, dict) else None
-        if not cursor:
-            break
+    async for page in await client.conversations_replies(
+        channel=channel_id,
+        ts=thread_ts,
+        limit=1000,
+    ):
+        replies.extend(page.get("messages", []))
     return keep_newest_replies(replies, max_count=MAX_THREAD_REPLIES)
 
 
