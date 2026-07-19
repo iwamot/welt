@@ -17,7 +17,7 @@ Slack ⇄ Welt ⇄ AgentCore Runtime
                 └── your agent, using an adapter for Welt's JSON wire
 ```
 
-Adapters exist for Strands Agents (Python) and Mastra (TypeScript), and more may follow — see [Agent-Side Adapters](#agent-side-adapters). The Quick Start below runs welt-io's example agent.
+Adapters exist for Strands Agents (Python and TypeScript) and Mastra (TypeScript), and more may follow — see [Agent-Side Adapters](#agent-side-adapters). The Quick Start below runs welt-io's example agent.
 
 ## Quick Start
 
@@ -59,7 +59,7 @@ It connects to Slack and waits. In local mode Welt itself needs no AWS credentia
 
 ### 4. Run the Example Agent
 
-In another terminal, run [welt-io's example agent](https://github.com/iwamot/welt-io/tree/main/examples/agent) by following its README's **Run Locally** section; it serves on `http://localhost:8080`, where Welt is pointing. (Prefer TypeScript? [welt-io-mastra's example agent](https://github.com/iwamot/welt-io-mastra/tree/main/examples/agent) works just as well here.)
+In another terminal, run [welt-io's example agent](https://github.com/iwamot/welt-io/tree/main/examples/agent) by following its README's **Run Locally** section; it serves on `http://localhost:8080`, where Welt is pointing. (Prefer TypeScript? The [welt-io-ts](https://github.com/iwamot/welt-io-ts/tree/main/examples/agent) and [welt-io-mastra](https://github.com/iwamot/welt-io-mastra/tree/main/examples/agent) example agents work just as well here.)
 
 ### 5. Say Hello!
 
@@ -87,6 +87,7 @@ Once you're comfortable, swap in your own agent and point `AGENT_ARN` at its dep
 The wire between Welt and the agent is plain JSON, and the [Wire Contract](docs/wire.md) is its full specification. Each adapter maps the wire to one framework's types and carries its own example agent:
 
 - [welt-io](https://github.com/iwamot/welt-io) — Strands Agents (Python)
+- [welt-io-ts](https://github.com/iwamot/welt-io-ts) — Strands Agents (TypeScript)
 - [welt-io-mastra](https://github.com/iwamot/welt-io-mastra) — Mastra (TypeScript)
 
 Other stacks can implement the contract directly.
