@@ -2,11 +2,19 @@
 
 Welt supports human-in-the-loop pauses: an agent run can stop mid-way to ask for decisions, and Welt renders each pending question as buttons and/or a free-text field in the Slack thread. Once every question is answered, Welt re-invokes the same session with the answers and the run continues where it stopped.
 
-```
-run stops with questions → Welt posts them in the thread
-  → people answer (press a button, or type and hit Enter)
-  → all answered → Welt re-invokes the session with the answers
-  → the reply streams on as usual
+```mermaid
+sequenceDiagram
+    participant P as People in the thread
+    participant W as Welt
+    participant A as Agent
+
+    A-->>W: the run stops with one or more questions
+    W-->>P: each question as buttons and/or a text field
+    loop until every question is answered
+        P->>W: press a button, or type and hit Enter
+    end
+    W->>A: re-invoke the same session with the answers
+    A-->>W: the reply streams on as usual
 ```
 
 Welt keeps no state of its own — the collection lives in the question message's metadata. The events and payloads are specified in the [wire contract](wire.md#interrupt); an [agent-side adapter](../README.md#agent-side-adapters) does the wiring, and its documentation covers raising interrupts from agent code.
