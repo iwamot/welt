@@ -73,7 +73,7 @@ When the local loop works, move the agent to AgentCore Runtime: deploy it by fol
 AGENT_ARN=arn:aws:bedrock-agentcore:...
 ```
 
-Welt now picks up your AWS credentials the standard SDK way — environment variables, `AWS_PROFILE`, an SSO session — and the identity needs permission to invoke your agent.
+Welt now picks up your AWS credentials the standard SDK way — environment variables, `AWS_PROFILE`, an SSO session — and the identity needs two actions on the agent runtime ARN: `bedrock-agentcore:InvokeAgentRuntime`, and `bedrock-agentcore:InvokeAgentRuntimeForUser` because Welt sends the verified Slack user as the [`runtimeUserId`](docs/wire.md#session-and-identity).
 
 Once you're comfortable, swap in your own agent and point `AGENT_ARN` at its deployment — see [Agent-Side Adapters](#agent-side-adapters) below.
 
