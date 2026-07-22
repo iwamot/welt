@@ -32,11 +32,14 @@ from app.stream_logic import Interrupt
 # The metadata event type marking a message as Welt's interrupt collector.
 METADATA_EVENT_TYPE = "welt_interrupt"
 
-# Slack rendering limits: section text length, button label length, and the
-# element count of one actions block. Bodies and labels are clipped to fit;
-# a structured reason with too many options falls back instead (a partial
-# button row could not be answered completely, so it must not render).
-_SECTION_TEXT_MAX = 3000
+# Slack rendering limits. A question body renders as a markdown block, and
+# the 12,000-character markdown cap is cumulative across one message, so a
+# stop's questions split it evenly. Labels have per-element caps. Bodies and
+# labels are clipped to fit; a structured reason with too many options falls
+# back instead (a partial button row could not be answered completely, so it
+# must not render).
+_MARKDOWN_TEXT_MAX = 12000
+_TEXT_OBJECT_MAX = 3000
 _BUTTON_LABEL_MAX = 75
 _MAX_OPTIONS = 25
 
@@ -77,7 +80,7 @@ class InterruptInput:
 
 @dataclass(frozen=True)
 class InterruptPrompt:
-    """The rendering of one interrupt: mrkdwn body plus buttons or a field."""
+    """The rendering of one interrupt: markdown body plus buttons or a field."""
 
     text: str
     options: tuple[InterruptOption, ...] = ()
@@ -96,7 +99,9 @@ DEFAULT_OPTIONS = (
 DEFAULT_INPUT = InterruptInput()
 
 
-def derive_interrupt_prompt(reason: object) -> InterruptPrompt:
+def derive_interrupt_prompt(
+    reason: object, *, text_limit: int = _MARKDOWN_TEXT_MAX
+) -> InterruptPrompt:
     """
     Derive an interrupt's body text and buttons from its reason.
 
@@ -108,26 +113,30 @@ def derive_interrupt_prompt(reason: object) -> InterruptPrompt:
 
     Args:
         reason (object): The interrupt's reason, any JSON value.
+        text_limit (int): The body's character budget — this question's
+            share of the message's cumulative markdown cap.
 
     Returns:
-        InterruptPrompt: The mrkdwn body (escaped and clipped to Slack's
-            section limit) and the buttons to render.
+        InterruptPrompt: The markdown body (clipped to the budget) and the
+            buttons to render.
     """
-    structured = _parse_structured_reason(reason)
+    structured = _parse_structured_reason(reason, text_limit)
     if structured is not None:
         return structured
     if isinstance(reason, str) and reason:
         return InterruptPrompt(
-            text=_clip(_escape_mrkdwn(reason), _SECTION_TEXT_MAX),
+            text=_clip(reason, text_limit),
             options=DEFAULT_OPTIONS,
             input=DEFAULT_INPUT,
         )
     return InterruptPrompt(
-        text=_fenced_json(reason), options=DEFAULT_OPTIONS, input=DEFAULT_INPUT
+        text=_fenced_json(reason, text_limit),
+        options=DEFAULT_OPTIONS,
+        input=DEFAULT_INPUT,
     )
 
 
-def _parse_structured_reason(reason: object) -> InterruptPrompt | None:
+def _parse_structured_reason(reason: object, text_limit: int) -> InterruptPrompt | None:
     """
     Parse a reason against the structured shape, all-or-nothing.
 
@@ -137,6 +146,7 @@ def _parse_structured_reason(reason: object) -> InterruptPrompt | None:
 
     Args:
         reason (object): The interrupt's reason, any JSON value.
+        text_limit (int): The body's character budget.
 
     Returns:
         InterruptPrompt | None: The prompt, or None when anything about the
@@ -166,7 +176,7 @@ def _parse_structured_reason(reason: object) -> InterruptPrompt | None:
             return None
         options = parsed_options
     return InterruptPrompt(
-        text=_clip(_escape_mrkdwn(message), _SECTION_TEXT_MAX),
+        text=_clip(message, text_limit),
         options=options,
         input=input_field,
     )
@@ -226,19 +236,6 @@ def _parse_input_field(input_spec: object) -> InterruptInput | None:
     return InterruptInput(label=label, multiline=multiline)
 
 
-def _escape_mrkdwn(text: str) -> str:
-    """
-    Escape the characters Slack mrkdwn treats as control sequences.
-
-    Args:
-        text (str): Arbitrary text destined for an mrkdwn field.
-
-    Returns:
-        str: The text with & < > HTML-entity encoded, per Slack's rules.
-    """
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def _clip(text: str, limit: int) -> str:
     """
     Clip text to a length limit, marking the cut with an ellipsis.
@@ -255,20 +252,21 @@ def _clip(text: str, limit: int) -> str:
     return text[: limit - 1] + "…"
 
 
-def _fenced_json(reason: object) -> str:
+def _fenced_json(reason: object, text_limit: int) -> str:
     """
-    Render a reason as pretty-printed JSON in an mrkdwn code block.
+    Render a reason as pretty-printed JSON in a markdown code block.
 
     Args:
         reason (object): The interrupt's reason; guaranteed JSON-native,
             since it was decoded from the JSON wire.
+        text_limit (int): The body's character budget, fence included.
 
     Returns:
         str: The fenced code block, its content clipped so the whole body
-            (fence included) fits Slack's section limit.
+            (fence included) fits the budget.
     """
-    dumped = _escape_mrkdwn(json.dumps(reason, ensure_ascii=False, indent=2))
-    budget = _SECTION_TEXT_MAX - len("```\n\n```")
+    dumped = json.dumps(reason, ensure_ascii=False, indent=2)
+    budget = text_limit - len("```\n\n```")
     return f"```\n{_clip(dumped, budget)}\n```"
 
 
@@ -276,11 +274,12 @@ def build_interrupt_blocks(interrupts: Sequence[Interrupt]) -> list[dict]:
     """
     Build the blocks of the button message for a stop's interrupts.
 
-    Per interrupt, a section carrying the body derived from its reason,
-    followed by its answering widget: an actions block with its buttons, or
-    an input block with its free-text field (dispatch_action, so Enter
-    submits a block_actions payload just like a button press). A press
-    alone must identify which question was answered with what — a button
+    Per interrupt, a markdown block carrying the body derived from its
+    reason — the questions split the message's cumulative markdown budget
+    evenly — followed by its answering widget: an actions block with its
+    buttons, or an input block with its free-text field (dispatch_action,
+    so Enter submits a block_actions payload just like a button press). A
+    press alone must identify which question was answered with what — a button
     carries the interrupt id and the option value in its `value`, a text
     field carries the interrupt id in its action_id (its value is whatever
     the human typed). Every action_id starts with the listener-matched
@@ -294,10 +293,10 @@ def build_interrupt_blocks(interrupts: Sequence[Interrupt]) -> list[dict]:
     """
     blocks: list[dict] = []
     for index, interrupt in enumerate(interrupts):
-        prompt = derive_interrupt_prompt(interrupt.reason)
-        blocks.append(
-            {"type": "section", "text": {"type": "mrkdwn", "text": prompt.text}}
+        prompt = derive_interrupt_prompt(
+            interrupt.reason, text_limit=_MARKDOWN_TEXT_MAX // len(interrupts)
         )
+        blocks.append({"type": "markdown", "text": prompt.text})
         # One question can render several widget blocks (buttons plus a
         # free-text alternative). Slack rejects duplicate block_ids within
         # a message, so each widget gets its own id; the shared group stem
@@ -645,11 +644,11 @@ def replace_answered_blocks(
                 "elements": [
                     {
                         "type": "plain_text",
-                        # The 3000-character cap is the text object's own,
-                        # so it applies in a context line as in a section.
+                        # Plain-text objects cap at 3000 characters, in a
+                        # context line as anywhere else.
                         "text": _clip(
                             f"“{label}” — answered by {presser_name}",
-                            _SECTION_TEXT_MAX,
+                            _TEXT_OBJECT_MAX,
                         ),
                     }
                 ],

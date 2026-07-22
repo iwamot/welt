@@ -81,7 +81,7 @@ Welt renders six event keys and ignores everything else, so extra framework even
 
 | Event | Shape | Welt renders it as |
 |---|---|---|
-| `data` | `{"data": "<text>"}` | A chunk of the streamed reply |
+| `data` | `{"data": "<text>"}` | A chunk of the streamed reply, as standard Markdown |
 | `current_tool_use` | `{"current_tool_use": {"name": "...", "toolUseId": "..."}}` | A "using tool" indicator |
 | `tool_result` | `{"tool_result": {"toolUseId": "...", "status": "success" \| "error"}}` | Closes that tool's indicator |
 | `file` | `{"file": {"name": "...", "bytes": "<base64>"}}` | A file uploaded into the thread |
@@ -117,7 +117,7 @@ A **structured reason** renders as a message with the specified widgets. It is a
 
 | Field | Required | Constraints |
 |---|---|---|
-| `message` | yes | Non-empty string; the question body |
+| `message` | yes | Non-empty string; the question body, rendered as standard Markdown |
 | `options` | one of `options` / `input` | Non-empty list of at most 25 buttons |
 | `options[].value` | yes | Non-empty string, at most 1800 characters; becomes the answer |
 | `options[].label` | no | Button text; defaults to `value` |
