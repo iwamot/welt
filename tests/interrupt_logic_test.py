@@ -60,13 +60,13 @@ def test_structured_danger_style_is_kept():
     assert derive_interrupt_prompt(reason).options[0].style == "danger"
 
 
-def test_structured_message_is_escaped_and_clipped():
-    reason = {"message": "a <b> & c" + "x" * 3000, "options": [{"value": "y"}]}
+def test_structured_message_is_kept_verbatim_and_clipped():
+    reason = {"message": "a <b> & c" + "x" * 12000, "options": [{"value": "y"}]}
 
     text = derive_interrupt_prompt(reason).text
 
-    assert text.startswith("a &lt;b&gt; &amp; c")
-    assert len(text) == 3000
+    assert text.startswith("a <b> & c")
+    assert len(text) == 12000
     assert text.endswith("…")
 
 
@@ -85,11 +85,11 @@ def test_string_reason_gets_default_buttons():
     assert prompt.input == DEFAULT_INPUT
 
 
-def test_string_reason_is_escaped_and_clipped():
-    prompt = derive_interrupt_prompt("<ok> & " + "x" * 3000)
+def test_string_reason_is_kept_verbatim_and_clipped():
+    prompt = derive_interrupt_prompt("<ok> & " + "x" * 12000)
 
-    assert prompt.text.startswith("&lt;ok&gt; &amp; ")
-    assert len(prompt.text) == 3000
+    assert prompt.text.startswith("<ok> & ")
+    assert len(prompt.text) == 12000
     assert prompt.text.endswith("…")
 
 
@@ -116,11 +116,11 @@ def test_empty_string_reason_falls_back_to_a_code_block():
     assert derive_interrupt_prompt("").text == '```\n""\n```'
 
 
-def test_code_block_fallback_is_escaped_and_clipped_inside_the_fence():
-    prompt = derive_interrupt_prompt({"cmd": "<rm> & " + "y" * 4000})
+def test_code_block_fallback_is_kept_verbatim_and_clipped_inside_the_fence():
+    prompt = derive_interrupt_prompt({"cmd": "<rm> & " + "y" * 13000})
 
-    assert "&lt;rm&gt; &amp;" in prompt.text
-    assert len(prompt.text) == 3000
+    assert "<rm> &" in prompt.text
+    assert len(prompt.text) == 12000
     assert prompt.text.endswith("…\n```")
 
 
@@ -227,14 +227,14 @@ def test_blocks_carry_one_section_and_one_actions_row_per_interrupt():
     # The first question is a fallback rendering, so it gets the default
     # widgets: Approve / Deny buttons plus a free-text field.
     assert [block["type"] for block in blocks] == [
-        "section",
+        "markdown",
         "actions",
         "input",
-        "section",
+        "markdown",
         "actions",
     ]
-    assert blocks[0]["text"] == {"type": "mrkdwn", "text": "First?"}
-    assert blocks[3]["text"] == {"type": "mrkdwn", "text": "Second?"}
+    assert blocks[0] == {"type": "markdown", "text": "First?"}
+    assert blocks[3] == {"type": "markdown", "text": "Second?"}
 
     first_row = blocks[1]["elements"]
     assert [element["action_id"] for element in first_row] == [
@@ -267,10 +267,7 @@ def test_input_reason_becomes_an_input_block():
     reason = {"message": "Which city?", "input": {"label": "City"}}
     blocks = build_interrupt_blocks([Interrupt(id="i-1", name="q", reason=reason)])
 
-    assert blocks[0] == {
-        "type": "section",
-        "text": {"type": "mrkdwn", "text": "Which city?"},
-    }
+    assert blocks[0] == {"type": "markdown", "text": "Which city?"}
     assert blocks[1] == {
         "type": "input",
         "block_id": "welt_interrupt_q_0_input",
@@ -283,6 +280,21 @@ def test_input_reason_becomes_an_input_block():
             "dispatch_action_config": {"trigger_actions_on": ["on_enter_pressed"]},
         },
     }
+
+
+def test_bodies_split_the_cumulative_markdown_budget():
+    # Slack's 12,000-character markdown cap is cumulative across a message,
+    # so two questions get 6,000 each.
+    interrupts = [
+        Interrupt(id="i-1", name="a", reason="a" * 12000),
+        Interrupt(id="i-2", name="b", reason="b" * 12000),
+    ]
+
+    blocks = build_interrupt_blocks(interrupts)
+
+    bodies = [block["text"] for block in blocks if block["type"] == "markdown"]
+    assert [len(body) for body in bodies] == [6000, 6000]
+    assert all(body.endswith("…") for body in bodies)
 
 
 # --- collection state ----------------------------------------------------------
@@ -502,12 +514,12 @@ def _button(action_id: str, label: str) -> dict:
 
 def test_pressed_row_becomes_a_receipt_with_the_presser():
     blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": "First?"}},
+        {"type": "markdown", "text": "First?"},
         {
             "type": "actions",
             "elements": [_button("welt_interrupt_0_0", "Deploy <now>")],
         },
-        {"type": "section", "text": {"type": "mrkdwn", "text": "Second?"}},
+        {"type": "markdown", "text": "Second?"},
         {"type": "actions", "elements": [_button("welt_interrupt_1_0", "Go")]},
     ]
 
@@ -552,7 +564,7 @@ def test_replacement_without_the_pressed_button_returns_none():
 
 def test_answered_text_field_receipt_echoes_the_submitted_text():
     blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": "Which city?"}},
+        {"type": "markdown", "text": "Which city?"},
         {
             "type": "input",
             "dispatch_action": True,
@@ -624,7 +636,7 @@ def test_replacement_skips_unreadable_blocks_and_elements():
 
 def test_context_notice_is_appended_after_the_existing_blocks():
     blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": "Deploy?"}},
+        {"type": "markdown", "text": "Deploy?"},
         {
             "type": "context",
             "elements": [{"type": "plain_text", "text": "“Go” — answered by T"}],
@@ -648,7 +660,7 @@ def test_mixed_question_widgets_share_a_group_and_retire_together():
     }
     blocks = build_interrupt_blocks([Interrupt(id="i-1", name="q", reason=reason)])
 
-    assert [block["type"] for block in blocks] == ["section", "actions", "input"]
+    assert [block["type"] for block in blocks] == ["markdown", "actions", "input"]
     assert blocks[1]["block_id"] == "welt_interrupt_q_0_options"
     assert blocks[2]["block_id"] == "welt_interrupt_q_0_input"
 
@@ -660,7 +672,7 @@ def test_mixed_question_widgets_share_a_group_and_retire_together():
         answer="tokyo",
     )
     assert by_button is not None
-    assert [block["type"] for block in by_button] == ["section", "context"]
+    assert [block["type"] for block in by_button] == ["markdown", "context"]
     assert by_button[1]["elements"][0]["text"] == "“Tokyo” — answered by Takashi"
 
     # Answered via the field: the button row retires with it.
@@ -671,7 +683,7 @@ def test_mixed_question_widgets_share_a_group_and_retire_together():
         answer="Osaka",
     )
     assert by_text is not None
-    assert [block["type"] for block in by_text] == ["section", "context"]
+    assert [block["type"] for block in by_text] == ["markdown", "context"]
     assert by_text[1]["elements"][0]["text"] == "“Osaka” — answered by Takashi"
 
 
@@ -681,7 +693,7 @@ def test_answering_one_question_keeps_the_other_questions_widgets():
         Interrupt(id="i-2", name="b", reason="Second?"),
     ]
     blocks = build_interrupt_blocks(interrupts)
-    assert [block["type"] for block in blocks] == ["section", "actions", "input"] * 2
+    assert [block["type"] for block in blocks] == ["markdown", "actions", "input"] * 2
 
     updated = replace_answered_blocks(
         blocks,
@@ -692,9 +704,9 @@ def test_answering_one_question_keeps_the_other_questions_widgets():
 
     assert updated is not None
     assert [block["type"] for block in updated] == [
-        "section",
+        "markdown",
         "context",
-        "section",
+        "markdown",
         "actions",
         "input",
     ]
