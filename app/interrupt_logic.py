@@ -15,11 +15,11 @@ as its message with a free-text field (submitted with Enter, via
 dispatch_action); the two can be combined, whichever answer comes first
 settling the question. A string reason renders as that text; anything else
 is shown as pretty-printed JSON in a code block. The two fallback renderings
-get the default widgets — the Approve / Deny buttons, and nothing else: a
-free-text field renders only where a structured reason asks for one, so no
-answer can arrive that the question never offered. Matching is
-all-or-nothing — one malformed field drops the whole reason to the
-fallback, never a partial repair.
+get the default Approve / Deny buttons, and nothing else: a free-text field
+renders only where a structured reason asks for one, so no answer can
+arrive that the question never offered. Matching is all-or-nothing — one
+malformed field drops the whole reason to the fallback, never a partial
+repair.
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ class InterruptPrompt:
     input: InterruptInput | None = None
 
 
-# The fallback widgets: Approve / Deny buttons whose y / n values satisfy
+# The fallback buttons: Approve / Deny, whose y / n values satisfy
 # the default evaluator of Strands' HumanInTheLoop intervention without any
 # configuration. Deliberately no free-text field: an unrequested field
 # would accept answers the asking side never offered (a typed `t` silently
@@ -110,7 +110,7 @@ def derive_interrupt_prompt(
     Only the shape of the reason decides the rendering (Welt cannot know
     what produced it): the structured shape renders as its message with the
     specified widgets, a non-empty string as that text with the default
-    widgets (the Approve / Deny buttons), and everything
+    Approve / Deny buttons, and everything
     else as pretty-printed JSON in a code block with the same defaults.
 
     Args:

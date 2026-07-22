@@ -26,8 +26,8 @@ Each question carries a `reason` — any JSON value — and Welt decides the ren
 | Reason shape | Rendering |
 |---|---|
 | The [structured shape](wire.md#interrupt) | `message` as the body, plus the specified buttons and/or text field |
-| A string | That string as the body, default widgets |
-| Anything else | Pretty-printed JSON in a code block, default widgets |
+| A string | That string as the body, the default **Approve** / **Deny** buttons |
+| Anything else | Pretty-printed JSON in a code block, the default **Approve** / **Deny** buttons |
 
 A structured reason carries `message` plus `options` (choice buttons), `input` (a free-text field), or both — buttons with a free-text alternative. The [wire contract](wire.md#interrupt) defines every field; the shapes look like this:
 
@@ -54,7 +54,7 @@ With both, the buttons render above the field, and whichever answer comes first 
 
 Matching is all-or-nothing: a reason that misses the structured shape in any way falls back to the default rendering — no partial repair.
 
-The default widgets are the `y` (**Approve**, primary) and `n` (**Deny**) buttons — nothing else. The values are `y` / `n` because common approval evaluators (such as the default one of Strands' HumanInTheLoop) understand them without configuration. Deliberately no free-text field: a field the question never asked for would accept answers the asking side never offered (under HumanInTheLoop, for example, a typed `t` silently trusts the tool — with no hint on screen that `t` means anything). A question that wants free text asks for it with the structured reason's `input`.
+The default buttons are `y` (**Approve**, primary) and `n` (**Deny**), and they are the only default — no other widget renders unasked. The values are `y` / `n` because common approval evaluators (such as the default one of Strands' HumanInTheLoop) understand them without configuration. Deliberately no free-text field: a field the question never asked for would accept answers the asking side never offered (under HumanInTheLoop, for example, a typed `t` silently trusts the tool — with no hint on screen that `t` means anything). A question that wants free text asks for it with the structured reason's `input`.
 
 Bodies — the structured `message` and the plain-string reason — render as standard Markdown, the same interpretation as the streamed reply text, so an agent formats a question the way it formats everything else. A stop's bodies share Slack's 12,000-character markdown budget, split evenly and clipped with an ellipsis. Fallback renderings guarantee only that the pause is visible and answerable; if you care how it looks, use the structured shape.
 
