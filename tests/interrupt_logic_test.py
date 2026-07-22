@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 from app.interrupt_logic import (
-    DEFAULT_INPUT,
     DEFAULT_OPTIONS,
     METADATA_EVENT_TYPE,
     InterruptInput,
@@ -82,7 +81,7 @@ def test_string_reason_gets_default_buttons():
         'Tool "use_aws" requires human approval. Input: {"region": "us-east-1"}'
     )
     assert prompt.options == DEFAULT_OPTIONS
-    assert prompt.input == DEFAULT_INPUT
+    assert prompt.input is None
 
 
 def test_string_reason_is_kept_verbatim_and_clipped():
@@ -202,7 +201,7 @@ def test_almost_input_reasons_fall_back():
 
     for reason in almost:
         prompt = derive_interrupt_prompt(reason)
-        assert prompt.input == DEFAULT_INPUT, reason
+        assert prompt.input is None, reason
         assert prompt.options == DEFAULT_OPTIONS, reason
 
 
@@ -225,16 +224,15 @@ def test_blocks_carry_one_section_and_one_actions_row_per_interrupt():
     blocks = build_interrupt_blocks(interrupts)
 
     # The first question is a fallback rendering, so it gets the default
-    # widgets: Approve / Deny buttons plus a free-text field.
+    # widgets: the Approve / Deny buttons, and no free-text field.
     assert [block["type"] for block in blocks] == [
         "markdown",
         "actions",
-        "input",
         "markdown",
         "actions",
     ]
     assert blocks[0] == {"type": "markdown", "text": "First?"}
-    assert blocks[3] == {"type": "markdown", "text": "Second?"}
+    assert blocks[2] == {"type": "markdown", "text": "Second?"}
 
     first_row = blocks[1]["elements"]
     assert [element["action_id"] for element in first_row] == [
@@ -244,11 +242,9 @@ def test_blocks_carry_one_section_and_one_actions_row_per_interrupt():
     assert json.loads(first_row[0]["value"]) == {"iid": "i-1", "v": "y"}
     assert first_row[0]["style"] == "primary"
     assert "style" not in first_row[1]
-    assert blocks[2]["element"]["action_id"] == "welt_interrupt_input_i-1"
     assert blocks[1]["block_id"] == "welt_interrupt_q_0_options"
-    assert blocks[2]["block_id"] == "welt_interrupt_q_0_input"
 
-    second_row = blocks[4]["elements"]
+    second_row = blocks[3]["elements"]
     assert second_row[0]["action_id"] == "welt_interrupt_1_0"
     assert json.loads(second_row[0]["value"]) == {"iid": "i-2", "v": "go"}
 
@@ -693,7 +689,7 @@ def test_answering_one_question_keeps_the_other_questions_widgets():
         Interrupt(id="i-2", name="b", reason="Second?"),
     ]
     blocks = build_interrupt_blocks(interrupts)
-    assert [block["type"] for block in blocks] == ["markdown", "actions", "input"] * 2
+    assert [block["type"] for block in blocks] == ["markdown", "actions"] * 2
 
     updated = replace_answered_blocks(
         blocks,
@@ -708,9 +704,8 @@ def test_answering_one_question_keeps_the_other_questions_widgets():
         "context",
         "markdown",
         "actions",
-        "input",
     ]
-    assert updated[2:] == blocks[3:]
+    assert updated[2:] == blocks[2:]
 
 
 def test_a_widget_id_without_a_suffix_retires_only_the_pressed_block():

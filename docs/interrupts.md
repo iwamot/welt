@@ -54,7 +54,7 @@ With both, the buttons render above the field, and whichever answer comes first 
 
 Matching is all-or-nothing: a reason that misses the structured shape in any way falls back to the default rendering — no partial repair.
 
-The default widgets are the `y` (**Approve**, primary) and `n` (**Deny**) buttons plus a free-text field, so any question stays answerable whatever its reason looks like. The button values are `y` / `n` because common approval evaluators (such as the default one of Strands' HumanInTheLoop) understand them without configuration.
+The default widgets are the `y` (**Approve**, primary) and `n` (**Deny**) buttons — nothing else. The values are `y` / `n` because common approval evaluators (such as the default one of Strands' HumanInTheLoop) understand them without configuration. Deliberately no free-text field: a field the question never asked for would accept answers the asking side never offered (under HumanInTheLoop, for example, a typed `t` silently trusts the tool — with no hint on screen that `t` means anything). A question that wants free text asks for it with the structured reason's `input`.
 
 Bodies — the structured `message` and the plain-string reason — render as standard Markdown, the same interpretation as the streamed reply text, so an agent formats a question the way it formats everything else. A stop's bodies share Slack's 12,000-character markdown budget, split evenly and clipped with an ellipsis. Fallback renderings guarantee only that the pause is visible and answerable; if you care how it looks, use the structured shape.
 

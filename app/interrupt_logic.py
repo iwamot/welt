@@ -15,9 +15,11 @@ as its message with a free-text field (submitted with Enter, via
 dispatch_action); the two can be combined, whichever answer comes first
 settling the question. A string reason renders as that text; anything else
 is shown as pretty-printed JSON in a code block. The two fallback renderings
-get the default widgets — Approve / Deny buttons plus a free-text field.
-Matching is all-or-nothing — one malformed field drops the whole reason to
-the fallback, never a partial repair.
+get the default widgets — the Approve / Deny buttons, and nothing else: a
+free-text field renders only where a structured reason asks for one, so no
+answer can arrive that the question never offered. Matching is
+all-or-nothing — one malformed field drops the whole reason to the
+fallback, never a partial repair.
 """
 
 from __future__ import annotations
@@ -88,15 +90,15 @@ class InterruptPrompt:
 
 
 # The fallback widgets: Approve / Deny buttons whose y / n values satisfy
-# the default evaluator of Strands' HumanInTheLoop intervention (it approves
-# on y / yes / t) without any configuration, plus a free-text field so a
-# question that is not yes/no stays answerable whatever its reason looks
-# like.
+# the default evaluator of Strands' HumanInTheLoop intervention without any
+# configuration. Deliberately no free-text field: an unrequested field
+# would accept answers the asking side never offered (a typed `t` silently
+# trusts a tool under HumanInTheLoop, for one) — a question that wants free
+# text asks for it with the structured reason's `input`.
 DEFAULT_OPTIONS = (
     InterruptOption(value="y", label="Approve", style="primary"),
     InterruptOption(value="n", label="Deny"),
 )
-DEFAULT_INPUT = InterruptInput()
 
 
 def derive_interrupt_prompt(
@@ -108,7 +110,7 @@ def derive_interrupt_prompt(
     Only the shape of the reason decides the rendering (Welt cannot know
     what produced it): the structured shape renders as its message with the
     specified widgets, a non-empty string as that text with the default
-    widgets (Approve / Deny buttons plus a free-text field), and everything
+    widgets (the Approve / Deny buttons), and everything
     else as pretty-printed JSON in a code block with the same defaults.
 
     Args:
@@ -127,12 +129,10 @@ def derive_interrupt_prompt(
         return InterruptPrompt(
             text=_clip(reason, text_limit),
             options=DEFAULT_OPTIONS,
-            input=DEFAULT_INPUT,
         )
     return InterruptPrompt(
         text=_fenced_json(reason, text_limit),
         options=DEFAULT_OPTIONS,
-        input=DEFAULT_INPUT,
     )
 
 
