@@ -38,6 +38,10 @@ def test_interrupt_action_pattern(action_id: str, expected: bool):
     [
         ({"x-slack-retry-num": ["1"]}, True),
         ({"x-slack-retry-num": ["2"], "x-slack-retry-reason": ["http_timeout"]}, True),
+        # Socket Mode mirrors the envelope's retry_attempt, 0 on the first
+        # delivery — presence alone must not read as a retry.
+        ({"x-slack-retry-num": ["0"]}, False),
+        ({"x-slack-retry-num": []}, False),
         ({}, False),
         (
             {"x-slack-signature": ["v0=abc"], "content-type": ["application/json"]},

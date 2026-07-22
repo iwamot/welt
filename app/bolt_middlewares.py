@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 
 from slack_bolt import BoltResponse
 from slack_bolt.request import BoltRequest
+from slack_bolt.request.async_request import AsyncBoltRequest
 
 from app.bolt_logic import is_retried_request, should_skip_event
 
@@ -14,17 +15,23 @@ logger = logging.getLogger(__name__)
 
 
 async def before_authorize(
+    request: AsyncBoltRequest,
     body: dict,
     payload: dict,
     next_: Callable[[], Awaitable[None]],
 ) -> BoltResponse | None:
     """
-    Skip message changed/deleted events to reduce unnecessary workload.
+    Skip retried deliveries and message changed/deleted events.
 
-    Especially, "message_changed" events can be triggered many times when the
-    app rapidly updates its streaming reply.
+    Slack redelivers an event whose ack it never saw — over Socket Mode a
+    connection swap can eat the ack after the first delivery already handed
+    the work off, so processing the retry would just produce a duplicate
+    reply. Message changed/deleted events are skipped to reduce unnecessary
+    workload; especially, "message_changed" events can be triggered many
+    times when the app rapidly updates its streaming reply.
 
     Args:
+        request (AsyncBoltRequest): The incoming request.
         body (dict): The request body.
         payload (dict): The request payload.
         next_ (Callable[[], Awaitable[None]]): The next middleware to call.
@@ -32,6 +39,11 @@ async def before_authorize(
     Returns:
         BoltResponse | None: A response if the event is skipped, else None.
     """
+    if is_retried_request(request.headers):
+        logger.debug(
+            "Skipped the following middleware and listeners for this retried delivery"
+        )
+        return BoltResponse(status=200, body="")
     if should_skip_event(body, payload):
         logger.debug(
             "Skipped the following middleware and listeners "
@@ -51,11 +63,11 @@ def before_authorize_http(
     """
     Skip retried deliveries and message changed/deleted events, over HTTP.
 
-    The sync twin of `before_authorize` for the HTTP (Lambda) entry, with one
-    HTTP-only addition: Slack retries a delivery whose ack misses the
-    3-second window, which a Lambda cold start can. The first delivery has
-    already handed the real work to the lazy invocation by then, so a retry
-    would just produce a duplicate reply.
+    The sync twin of `before_authorize` for the HTTP (Lambda) entry. Over
+    HTTP, Slack retries a delivery whose ack misses the 3-second window,
+    which a Lambda cold start can. The first delivery has already handed the
+    real work to the lazy invocation by then, so a retry would just produce
+    a duplicate reply.
 
     Args:
         request (BoltRequest): The incoming request.

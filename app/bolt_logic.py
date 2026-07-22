@@ -21,8 +21,11 @@ def is_retried_request(headers: Mapping[str, Sequence[str]]) -> bool:
     Check if the request is a Slack retry of an earlier event delivery.
 
     Slack retries an Events API delivery when the first response is late or
-    fails; the retry carries an `x-slack-retry-num` header. Bolt normalizes
-    header names to lowercase, so the check is exact.
+    fails. Over HTTP the retry carries an `x-slack-retry-num` header, 1 and
+    up; over Socket Mode, Bolt mirrors the envelope's `retry_attempt` into
+    the same header, and that field is 0 on the first delivery — so the
+    value, not the header's presence, marks a retry. Bolt normalizes header
+    names to lowercase, so the lookup is exact.
 
     Args:
         headers (Mapping[str, Sequence[str]]): The normalized request headers
@@ -31,7 +34,10 @@ def is_retried_request(headers: Mapping[str, Sequence[str]]) -> bool:
     Returns:
         bool: True if the request is a retried delivery, False otherwise.
     """
-    return "x-slack-retry-num" in headers
+    values = headers.get("x-slack-retry-num")
+    if not values:
+        return False
+    return values[0] != "0"
 
 
 def should_skip_event(body: dict, payload: dict) -> bool:
