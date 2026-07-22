@@ -126,7 +126,7 @@ A **structured reason** renders as a message with the specified widgets. It is a
 | `input.label` | no | The field's label; defaults to `"Answer"` |
 | `input.multiline` | no | Boolean; defaults to `false` |
 
-Matching is all-or-nothing: one malformed field, or any key beyond the above, drops the whole reason to the fallback rendering — no partial repair. Any non-structured reason (a plain string, or any other JSON value) still renders as an answerable question with default widgets. The shapes are frozen at these fields; emoji, confirm dialogs, URLs and the like are beyond Welt's abstraction and will not be added.
+Matching is all-or-nothing: one malformed field, or any key beyond the above, drops the whole reason to the fallback rendering — no partial repair. Any non-structured reason (a plain string, or any other JSON value) still renders as an answerable question with the default Approve / Deny buttons. The shapes are frozen at these fields; emoji, confirm dialogs, URLs and the like are beyond Welt's abstraction and will not be added.
 
 ## Limits
 
