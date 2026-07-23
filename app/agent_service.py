@@ -28,6 +28,7 @@ from app.agent_logic import is_harness_arn
 from app.converse_logic import Message, keep_messages_after_last_assistant
 from app.stream_logic import (
     RenderEvent,
+    harness_final_stop_error,
     parse_harness_event,
     parse_sse_data_line,
     parse_stream_event,
@@ -280,10 +281,17 @@ async def _stream_harness_events(
 
     response = await asyncio.to_thread(invoke)
     events: Iterator[dict] = iter(response["stream"])
+    last_stop_reason: object = None
     async for event in _iterate_in_thread(events):
+        message_stop = event.get("messageStop")
+        if isinstance(message_stop, dict):
+            last_stop_reason = message_stop.get("stopReason")
         render_event = parse_harness_event(event)
         if render_event is not None:
             yield render_event
+    stop_error = harness_final_stop_error(last_stop_reason)
+    if stop_error is not None:
+        yield stop_error
 
 
 async def _iterate_in_thread[T](items: Iterator[T]) -> AsyncIterator[T]:

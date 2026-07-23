@@ -195,16 +195,22 @@ def parse_harness_event(event: dict) -> RenderEvent | None:
 
     A `contentBlockDelta` carrying a text delta is assistant text; a
     `contentBlockStart` opening a toolUse block is a tool invocation (name and
-    ID for the indicator); a `runtimeClientError` is the harness reporting a
-    failure mid-stream. The other event types (message / content-block
-    lifecycle, reasoning and toolUse-input deltas, metadata) carry nothing we
-    render, so they map to None.
+    ID for the indicator); a `contentBlockStart` opening a toolResult block is
+    that tool finishing (the harness runs its tools server-side and streams
+    the result back, so the block's status closes the indicator); a
+    `runtimeClientError` is the harness reporting a failure mid-stream. The
+    other event types (message / content-block lifecycle, reasoning and
+    toolUse-input deltas, metadata) carry nothing we render, so they map to
+    None — including `messageStop`, which recurs mid-stream as the agent
+    loop iterates; only the stream-final stop reason is meaningful, and
+    judging it is `harness_final_stop_error`'s job.
 
     Args:
         event (dict): One event from the InvokeHarness response stream.
 
     Returns:
-        RenderEvent | None: A text delta, a tool use, an error, or None.
+        RenderEvent | None: A text delta, a tool use, a tool result, an
+        error, or None.
     """
     block_delta = event.get("contentBlockDelta")
     if isinstance(block_delta, dict):
@@ -224,11 +230,44 @@ def parse_harness_event(event: dict) -> RenderEvent | None:
                 name=name if isinstance(name, str) else None,
                 tool_use_id=tool_use_id if isinstance(tool_use_id, str) else None,
             )
+        tool_result = start.get("toolResult") if isinstance(start, dict) else None
+        if isinstance(tool_result, dict):
+            tool_use_id = tool_result.get("toolUseId")
+            return ToolResult(
+                tool_use_id=tool_use_id if isinstance(tool_use_id, str) else None,
+                error=tool_result.get("status") == "error",
+            )
         return None
     error = event.get("runtimeClientError")
     if isinstance(error, dict):
         message = error.get("message")
         return StreamError(
             message=message if isinstance(message, str) and message else "unknown error"
+        )
+    return None
+
+
+def harness_final_stop_error(stop_reason: object) -> StreamError | None:
+    """
+    Judge the stop reason a harness stream ended on.
+
+    A stream whose last `messageStop` carries `tool_use` ended because the
+    harness expects the caller to run an inline function tool and send its
+    result back. Welt runs no client-side tools, so the turn cannot proceed,
+    and reporting that beats ending the reply silently. Mid-stream `tool_use`
+    stops are normal (the agent loop pauses each iteration on them before
+    running its own tools), which is why only the final one is judged.
+
+    Args:
+        stop_reason (object): The `stopReason` of the stream's last
+            `messageStop` event, or None if none was seen.
+
+    Returns:
+        StreamError | None: The error to render, or None for a normal end.
+    """
+    if stop_reason == "tool_use":
+        return StreamError(
+            message="the harness called a client-side (inline function) "
+            "tool, which Welt cannot run"
         )
     return None
