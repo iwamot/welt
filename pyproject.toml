@@ -19,7 +19,7 @@ dependencies = [
     # Bolt's AsyncApp imports aiohttp at module load (its async web server).
     "aiohttp==3.14.2",
     # invoke_agent_runtime (AgentCore Runtime) is called through boto3.
-    "boto3==1.43.53",
+    "boto3==1.43.54",
 ]
 
 # The dev group is included by `uv sync` and `uv run` by default (and
