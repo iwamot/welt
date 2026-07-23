@@ -181,6 +181,7 @@ class RotatingChatStream:
             thread_ts=self._thread_ts,
             recipient_team_id=self._recipient_team_id,
             recipient_user_id=self._recipient_user_id,
+            task_display_mode="plan",
             buffer_size=self._buffer_size,
         )
 
