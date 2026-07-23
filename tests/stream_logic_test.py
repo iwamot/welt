@@ -9,6 +9,7 @@ from app.stream_logic import (
     TextDelta,
     ToolResult,
     ToolUse,
+    harness_final_stop_error,
     parse_harness_event,
     parse_sse_data_line,
     parse_stream_event,
@@ -237,6 +238,33 @@ def test_harness_tool_use_with_missing_fields():
     assert parse_harness_event(event) == ToolUse(name=None, tool_use_id=None)
 
 
+def test_harness_tool_result_start_is_tool_result():
+    event = {
+        "contentBlockStart": {
+            "contentBlockIndex": 2,
+            "start": {"toolResult": {"toolUseId": "tool-1", "status": "success"}},
+        }
+    }
+
+    assert parse_harness_event(event) == ToolResult(tool_use_id="tool-1", error=False)
+
+
+def test_harness_tool_result_error_status_is_error():
+    event = {
+        "contentBlockStart": {
+            "start": {"toolResult": {"toolUseId": "tool-1", "status": "error"}},
+        }
+    }
+
+    assert parse_harness_event(event) == ToolResult(tool_use_id="tool-1", error=True)
+
+
+def test_harness_tool_result_with_missing_fields():
+    event = {"contentBlockStart": {"start": {"toolResult": {}}}}
+
+    assert parse_harness_event(event) == ToolResult(tool_use_id=None, error=False)
+
+
 def test_harness_non_tool_block_start_is_ignored():
     assert parse_harness_event({"contentBlockStart": {"start": {}}}) is None
     assert parse_harness_event({"contentBlockStart": {}}) is None
@@ -258,4 +286,24 @@ def test_harness_lifecycle_and_metadata_events_are_ignored():
     assert parse_harness_event({"messageStart": {"role": "assistant"}}) is None
     assert parse_harness_event({"messageStop": {"stopReason": "end_turn"}}) is None
     assert parse_harness_event({"metadata": {"usage": {"totalTokens": 42}}}) is None
+
+
+def test_harness_mid_stream_tool_use_stop_is_ignored():
+    assert parse_harness_event({"messageStop": {"stopReason": "tool_use"}}) is None
+
+
+# --- harness_final_stop_error ------------------------------------------------
+
+
+def test_final_tool_use_stop_is_an_error():
+    result = harness_final_stop_error("tool_use")
+
+    assert isinstance(result, StreamError)
+    assert "inline function" in result.message
+
+
+def test_other_final_stops_are_normal():
+    assert harness_final_stop_error("end_turn") is None
+    assert harness_final_stop_error("tool_result") is None
+    assert harness_final_stop_error(None) is None
     assert parse_harness_event({"contentBlockStop": {"contentBlockIndex": 0}}) is None
