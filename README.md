@@ -17,7 +17,7 @@ Slack ⇄ Welt ⇄ AgentCore Runtime
                 └── your agent, using an adapter for Welt's JSON wire
 ```
 
-Adapters exist for Strands Agents (Python and TypeScript) and Mastra (TypeScript), and more may follow — see [Agent-Side Adapters](#agent-side-adapters). The Quick Start below runs welt-io-strands's example agent.
+Adapters exist for several agent frameworks, in Python and TypeScript — see [Agent-Side Adapters](#agent-side-adapters). The Quick Start below runs welt-io-strands's example agent.
 
 ## Quick Start
 
@@ -59,7 +59,7 @@ It connects to Slack and waits. In local mode Welt itself needs no AWS credentia
 
 ### 4. Run the Example Agent
 
-In another terminal, run [welt-io-strands's example agent](https://github.com/iwamot/welt-io-strands/tree/main/examples/agent) by following its README's **Run Locally** section; it serves on `http://localhost:8080`, where Welt is pointing. (Prefer TypeScript? The [welt-io-strands-ts](https://github.com/iwamot/welt-io-strands-ts/tree/main/examples/agent) and [welt-io-mastra](https://github.com/iwamot/welt-io-mastra/tree/main/examples/agent) example agents work just as well here.)
+In another terminal, run [welt-io-strands's example agent](https://github.com/iwamot/welt-io-strands/tree/main/examples/agent) by following its README's **Run Locally** section; it serves on `http://localhost:8080`, where Welt is pointing. (The [other adapters'](#agent-side-adapters) example agents work just as well here.)
 
 ### 5. Say Hello!
 
@@ -91,6 +91,7 @@ The wire between Welt and the agent is plain JSON, and the [Wire Contract](docs/
 | [welt-io-strands](https://github.com/iwamot/welt-io-strands) | Python | Strands Agents | [welt-io-strands](https://pypi.org/project/welt-io-strands/) |
 | [welt-io-strands-ts](https://github.com/iwamot/welt-io-strands-ts) | TypeScript | Strands Agents | [@welt-io/strands](https://www.npmjs.com/package/@welt-io/strands) |
 | [welt-io-mastra](https://github.com/iwamot/welt-io-mastra) | TypeScript | Mastra | [@welt-io/mastra](https://www.npmjs.com/package/@welt-io/mastra) |
+| [welt-io-langgraph](https://github.com/iwamot/welt-io-langgraph) | Python | LangGraph | [welt-io-langgraph](https://pypi.org/project/welt-io-langgraph/) |
 
 Other stacks can implement the contract directly.
 
