@@ -89,9 +89,9 @@ The wire between Welt and the agent is plain JSON, and the [Wire Contract](docs/
 | Repository | Language | Framework | Package |
 | --- | --- | --- | --- |
 | [welt-io-strands](https://github.com/iwamot/welt-io-strands) | Python | Strands Agents | [welt-io-strands](https://pypi.org/project/welt-io-strands/) |
+| [welt-io-langgraph](https://github.com/iwamot/welt-io-langgraph) | Python | LangGraph | [welt-io-langgraph](https://pypi.org/project/welt-io-langgraph/) |
 | [welt-io-strands-ts](https://github.com/iwamot/welt-io-strands-ts) | TypeScript | Strands Agents | [@welt-io/strands](https://www.npmjs.com/package/@welt-io/strands) |
 | [welt-io-mastra](https://github.com/iwamot/welt-io-mastra) | TypeScript | Mastra | [@welt-io/mastra](https://www.npmjs.com/package/@welt-io/mastra) |
-| [welt-io-langgraph](https://github.com/iwamot/welt-io-langgraph) | Python | LangGraph | [welt-io-langgraph](https://pypi.org/project/welt-io-langgraph/) |
 
 Other stacks can implement the contract directly.
 
