@@ -113,8 +113,10 @@ def test_harness_arn_ignores_file_input_with_a_warning():
 
     assert result.file_input_modalities == ()
     assert result.boot_warnings == (
-        "Ignoring FILE_INPUT_MODALITIES: AGENT_ARN is a harness ARN, "
-        "and InvokeHarness accepts text content only",
+        (
+            "Ignoring FILE_INPUT_MODALITIES: AGENT_ARN is a harness ARN, "
+            "and InvokeHarness accepts text content only"
+        ),
     )
 
 
@@ -156,8 +158,10 @@ def test_harness_arn_ignores_disabled_history_management_with_a_warning():
 
     assert result.agent_manages_history is True
     assert result.boot_warnings == (
-        "Ignoring AGENT_MANAGES_HISTORY: AGENT_ARN is a harness "
-        "ARN, and the harness keeps the conversation history itself",
+        (
+            "Ignoring AGENT_MANAGES_HISTORY: AGENT_ARN is a harness "
+            "ARN, and the harness keeps the conversation history itself"
+        ),
     )
 
 
@@ -172,10 +176,14 @@ def test_boot_warnings_are_in_ascending_variable_name_order():
     result = load_env(environ)
 
     assert result.boot_warnings == (
-        "Ignoring AGENT_MANAGES_HISTORY: AGENT_ARN is a harness "
-        "ARN, and the harness keeps the conversation history itself",
-        "Ignoring FILE_INPUT_MODALITIES: AGENT_ARN is a harness ARN, "
-        "and InvokeHarness accepts text content only",
+        (
+            "Ignoring AGENT_MANAGES_HISTORY: AGENT_ARN is a harness "
+            "ARN, and the harness keeps the conversation history itself"
+        ),
+        (
+            "Ignoring FILE_INPUT_MODALITIES: AGENT_ARN is a harness ARN, "
+            "and InvokeHarness accepts text content only"
+        ),
     )
 
 

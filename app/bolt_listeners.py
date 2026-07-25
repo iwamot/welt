@@ -69,6 +69,11 @@ from app.stream_logic import (
 
 logger = logging.getLogger(__name__)
 
+
+class AgentReplyError(Exception):
+    """The agent's stream reported an error instead of completing the reply."""
+
+
 # Fixed texts of Welt's own messages — deliberately not configurable, so
 # the frame around the conversation reads the same on every deployment.
 REPLY_FAILURE_TEXT = ":warning: Failed to reply. Please check the app logs."
@@ -167,12 +172,16 @@ async def respond_to_new_post(
             streamer=streamer,
             events=events,
         )
-    except Exception as e:
+    except Exception:
+        logger.exception(
+            "Failed to reply (channel: %s, thread: %s)",
+            context.channel_id,
+            reply_thread_ts,
+        )
         await report_reply_failure(
             client=client,
             channel_id=context.channel_id,
             thread_ts=reply_thread_ts,
-            error=e,
             streamer=streamer,
         )
     finally:
@@ -439,7 +448,7 @@ async def stream_agent_reply_to_slack(
     interrupts: list[Interrupt] = []
     async for event in events:
         if isinstance(event, StreamError):
-            raise RuntimeError(f"The agent reported an error: {event.message}")
+            raise AgentReplyError(f"The agent reported an error: {event.message}")
         if isinstance(event, Interrupt):
             interrupts.append(event)
             continue
@@ -638,7 +647,7 @@ async def respond_to_interrupt_action(
         try:
             first = await anext(aiter(events), None)
         except Exception:
-            logger.error("Failed to resume the agent", exc_info=True)
+            logger.exception("Failed to resume the agent")
         if first is None or isinstance(first, StreamError):
             if isinstance(first, StreamError):
                 logger.error("The agent reported an error on resume: %s", first.message)
@@ -668,12 +677,16 @@ async def respond_to_interrupt_action(
             streamer=streamer,
             events=_with_first(first, events),
         )
-    except Exception as e:
+    except Exception:
+        logger.exception(
+            "Failed to reply (channel: %s, thread: %s)",
+            context.channel_id,
+            thread_ts,
+        )
         await report_reply_failure(
             client=client,
             channel_id=context.channel_id,
             thread_ts=thread_ts,
-            error=e,
             streamer=streamer,
         )
     finally:
@@ -748,33 +761,26 @@ async def report_reply_failure(
     client: AsyncWebClient,
     channel_id: str,
     thread_ts: str,
-    error: Exception,
     streamer: RotatingChatStream | None,
 ) -> None:
     """
-    Report a failed reply: full details to the log, a generic note to Slack.
+    Report a failed reply with a generic note to Slack.
 
-    The error text can carry internals (ARNs, AWS error details), so it
-    stays in the log; the channel gets a generic pointer. If the streaming
-    reply is already visible, the note finalizes that message so no empty
-    half-open reply is left behind; otherwise it is posted as a new reply.
+    The caller logs the failure itself; the error text can carry internals
+    (ARNs, AWS error details), so the channel only gets a generic pointer.
+    If the streaming reply is already visible, the note finalizes that
+    message so no empty half-open reply is left behind; otherwise it is
+    posted as a new reply.
 
     Args:
         client (AsyncWebClient): The Slack Web API client.
         channel_id (str): The ID of the channel where the post was made.
         thread_ts (str): The thread timestamp to reply to.
-        error (Exception): The failure to log.
         streamer (RotatingChatStream | None): The stream helper, if created.
 
     Returns:
         None
     """
-    logger.error(
-        "Failed to reply (channel: %s, thread: %s)",
-        channel_id,
-        thread_ts,
-        exc_info=error,
-    )
     if streamer is not None and streamer.ts is not None:
         try:
             await streamer.stop(markdown_text=REPLY_FAILURE_TEXT)
