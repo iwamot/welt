@@ -59,7 +59,7 @@ Slack uploads arrive as Converse `image` / `document` / `video` content blocks i
 {"video": {"format": "mp4", "source": {"bytes": "<base64>"}}}
 ```
 
-A document's `name` is pre-sanitized to what Converse accepts (alphanumerics, single spaces, hyphens, parentheses, square brackets). What Welt accepts from Slack and embeds is bounded by [Limits](#limits).
+A document's `name` is its handle for the model, not the name of the file in Slack. Welt puts the Slack file name through what Converse accepts — only alphanumerics, single spaces, hyphens, parentheses, and square brackets survive, up to 200 characters — and, because Converse rejects a request whose messages carry two documents under one name, gives a name an earlier document already took a ` (2)`, ` (3)`, … suffix. What Welt accepts from Slack and embeds is bounded by [Limits](#limits).
 
 ### `interrupt_responses` — resuming a run
 

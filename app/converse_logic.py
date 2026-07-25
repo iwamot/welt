@@ -15,7 +15,7 @@ thread.
 from __future__ import annotations
 
 import re
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, TypeGuard
 
 from app.message_logic import (
     build_slack_user_prefixed_text,
@@ -87,6 +87,10 @@ class Message(TypedDict):
     content: list[ContentBlock]
 
 
+# The longest document name Converse accepts.
+DOCUMENT_NAME_MAX_LENGTH = 200
+
+
 def build_messages(
     replies: list[dict],
     *,
@@ -108,6 +112,9 @@ def build_messages(
     without saying anything. File blocks are attached to
     the user message of the reply that carried the file: documents before the
     text, images and videos after it (Converse rejects some block orders).
+    Documents sharing a name are renamed apart, because Converse rejects a
+    request whose messages carry two documents under one name — a thread
+    where the same file name is uploaded twice would otherwise fail.
 
     Args:
         replies (list[dict]): Slack replies in chronological order.
@@ -127,7 +134,95 @@ def build_messages(
         )
         if message is not None:
             messages.append(message)
-    return messages
+    return _with_unique_document_names(messages)
+
+
+def _with_unique_document_names(messages: list[Message]) -> list[Message]:
+    """
+    Rename repeated document names apart, across the whole conversation.
+
+    Args:
+        messages (list[Message]): The conversation as Converse-shaped messages.
+
+    Returns:
+        list[Message]: The messages, each document under a name of its own;
+            blocks that keep their name are returned as they came.
+    """
+    taken: set[str] = set()
+    return [
+        {
+            "role": message["role"],
+            "content": [_uniquely_named(block, taken) for block in message["content"]],
+        }
+        for message in messages
+    ]
+
+
+def _uniquely_named(block: ContentBlock, taken: set[str]) -> ContentBlock:
+    """
+    Rename a document block if its name is already taken.
+
+    Args:
+        block (ContentBlock): The content block to name.
+        taken (set[str]): The document names used so far, extended with the
+            name this block ends up under.
+
+    Returns:
+        ContentBlock: The block, renamed only if its name was taken; blocks
+            other than documents pass through (only documents carry a name).
+    """
+    if not _is_document_block(block):
+        return block
+    document = block["document"]
+    name = _unique_document_name(document["name"], taken)
+    taken.add(name)
+    if name == document["name"]:
+        return block
+    return {
+        "document": {
+            "format": document["format"],
+            "name": name,
+            "source": document["source"],
+        }
+    }
+
+
+def _is_document_block(block: ContentBlock) -> TypeGuard[DocumentBlock]:
+    """
+    Tell whether a content block is a document block.
+
+    Args:
+        block (ContentBlock): The content block to check.
+
+    Returns:
+        TypeGuard[DocumentBlock]: Whether the block carries a document.
+    """
+    return "document" in block
+
+
+def _unique_document_name(name: str, taken: set[str]) -> str:
+    """
+    Find a document name that is free, counting up from the given one.
+
+    Args:
+        name (str): The document's own name.
+        taken (set[str]): The document names used so far.
+
+    Returns:
+        str: The name itself when free, else it with the first free ` (n)`
+            suffix — the stem trimmed if the suffix would overrun the length
+            Converse accepts.
+    """
+    if name not in taken:
+        return name
+    counter = 2
+    while True:
+        suffix = f" ({counter})"
+        stem = name[: DOCUMENT_NAME_MAX_LENGTH - len(suffix)].strip()
+        candidate = f"{stem}{suffix}"
+        if candidate not in taken:
+            return candidate
+        counter += 1
 
 
 def _drop_surrounding_bot_replies(
@@ -271,7 +366,7 @@ def sanitize_document_name(name: str | None) -> str:
     Sanitize a file name to what the Converse document block accepts.
 
     Converse allows only alphanumeric characters, single whitespace, hyphens,
-    parentheses, and square brackets in a document name.
+    parentheses, and square brackets in a document name, up to 200 characters.
 
     Args:
         name (str | None): The original file name.
@@ -281,4 +376,5 @@ def sanitize_document_name(name: str | None) -> str:
     """
     sanitized = re.sub(r"[^0-9A-Za-z\-()\[\] ]", "-", name or "")
     sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    sanitized = sanitized[:DOCUMENT_NAME_MAX_LENGTH].strip()
     return sanitized or "document"

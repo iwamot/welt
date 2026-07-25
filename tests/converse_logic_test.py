@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from app.converse_logic import (
+    DOCUMENT_NAME_MAX_LENGTH,
+    DocumentBlock,
     Message,
     build_document_block,
     build_image_block,
@@ -198,6 +200,11 @@ def test_sanitize_document_name_collapses_whitespace_and_falls_back():
     assert sanitize_document_name("日本語.pdf") == "----pdf"
 
 
+def test_sanitize_document_name_truncates_to_the_length_converse_accepts():
+    assert sanitize_document_name("a" * 250) == "a" * DOCUMENT_NAME_MAX_LENGTH
+    assert sanitize_document_name(f"{'a' * 199} bc") == "a" * 199
+
+
 def test_file_blocks_attached_documents_before_text_media_after():
     image_block = build_image_block(image_format="png", data_base64="IMG")
     video_block = build_video_block(video_format="mp4", data_base64="VID")
@@ -264,6 +271,70 @@ def test_files_not_fetched_are_ignored():
     result = _build(replies, file_blocks_by_id={})
 
     assert result == [{"role": "user", "content": [{"text": "<@U1>: hi"}]}]
+
+
+def _document(name: str) -> DocumentBlock:
+    return build_document_block(document_format="pdf", name=name, data_base64="DOC")
+
+
+def test_documents_sharing_a_name_are_renamed_apart():
+    document_block = _document("report")
+    replies = [
+        {"user": "U1", "text": "one", "files": [{"id": "F1"}]},
+        {"user": "U1", "text": "two", "files": [{"id": "F2"}]},
+        {"user": "U2", "text": "three", "files": [{"id": "F3"}]},
+    ]
+
+    result = _build(
+        replies,
+        file_blocks_by_id={
+            "F1": document_block,
+            "F2": document_block,
+            "F3": document_block,
+        },
+    )
+
+    assert result == [
+        {"role": "user", "content": [document_block, {"text": "<@U1>: one"}]},
+        {
+            "role": "user",
+            "content": [_document("report (2)"), {"text": "<@U1>: two"}],
+        },
+        {
+            "role": "user",
+            "content": [_document("report (3)"), {"text": "<@U2>: three"}],
+        },
+    ]
+    # The renaming leaves the block it was given untouched.
+    assert document_block == _document("report")
+
+
+def test_documents_with_distinct_names_are_left_alone():
+    one, two = _document("one"), _document("two")
+    replies = [{"user": "U1", "text": "hi", "files": [{"id": "F1"}, {"id": "F2"}]}]
+
+    result = _build(replies, file_blocks_by_id={"F1": one, "F2": two})
+
+    assert result == [{"role": "user", "content": [one, two, {"text": "<@U1>: hi"}]}]
+
+
+def test_renamed_document_name_stays_within_the_length_converse_accepts():
+    long_name = "a" * DOCUMENT_NAME_MAX_LENGTH
+    document_block = _document(long_name)
+    replies = [{"user": "U1", "text": "hi", "files": [{"id": "F1"}, {"id": "F2"}]}]
+
+    result = _build(
+        replies, file_blocks_by_id={"F1": document_block, "F2": document_block}
+    )
+
+    renamed = _document(f"{'a' * (DOCUMENT_NAME_MAX_LENGTH - 4)} (2)")
+    assert result == [
+        {
+            "role": "user",
+            "content": [document_block, renamed, {"text": "<@U1>: hi"}],
+        }
+    ]
+    assert len(renamed["document"]["name"]) == DOCUMENT_NAME_MAX_LENGTH
 
 
 # --- harness delta -----------------------------------------------------------
