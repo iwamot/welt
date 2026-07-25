@@ -206,9 +206,10 @@ def _parse_options(options: object) -> tuple[InterruptOption, ...] | None:
         if not isinstance(label, str) or not label:
             return None
         style = option.get("style")
-        if style is not None:
-            if not isinstance(style, str) or style not in _BUTTON_STYLES:
-                return None
+        if style is not None and (
+            not isinstance(style, str) or style not in _BUTTON_STYLES
+        ):
+            return None
         parsed.append(InterruptOption(value=value, label=label, style=style))
     return tuple(parsed)
 
