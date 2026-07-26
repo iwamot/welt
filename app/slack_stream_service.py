@@ -12,28 +12,15 @@ it. The reader just sees the reply continue in a follow-up message.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_chat_stream import AsyncChatStream
 from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
+from app.slack_stream_logic import PendingAppends
+
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class _PendingAppend:
-    """One append handed to the current stream but possibly not delivered.
-
-    The SDK helper buffers markdown until `buffer_size` and only then calls
-    the API, so an append that raised — and the buffered appends before it —
-    never reached Slack. Keeping them until a flush succeeds is what lets a
-    rollover replay them into the next message with nothing lost.
-    """
-
-    markdown_text: str | None
-    chunks: list[dict] | None
 
 
 def _is_message_too_long(error: SlackApiError) -> bool:
@@ -74,7 +61,7 @@ class RotatingChatStream:
         self._recipient_user_id = recipient_user_id
         self._buffer_size = buffer_size
         self._streamer: AsyncChatStream | None = None
-        self._pending: list[_PendingAppend] = []
+        self._pending = PendingAppends()
 
     @property
     def ts(self) -> str | None:
@@ -97,20 +84,14 @@ class RotatingChatStream:
         Returns:
             None
         """
-        self._pending.append(_PendingAppend(markdown_text=markdown_text, chunks=chunks))
         if self._streamer is None:
             self._streamer = await self._new_streamer()
         try:
-            response = await self._streamer.append(
-                markdown_text=markdown_text, chunks=chunks
-            )
+            await self._append_to_streamer(markdown_text=markdown_text, chunks=chunks)
         except SlackApiError as error:
             if not _is_message_too_long(error):
                 raise
             await self._rotate()
-            return
-        if response is not None:
-            self._pending.clear()
 
     async def stop(
         self,
@@ -134,7 +115,7 @@ class RotatingChatStream:
         """
         if self._streamer is None and markdown_text is None and not chunks:
             return
-        self._pending.append(_PendingAppend(markdown_text=markdown_text, chunks=chunks))
+        self._pending.record(markdown_text=markdown_text, chunks=chunks)
         if self._streamer is None:
             self._streamer = await self._new_streamer()
         try:
@@ -164,16 +145,28 @@ class RotatingChatStream:
             self._channel,
             self._thread_ts,
         )
-        replay = self._pending
-        self._pending = []
+        replay = self._pending.drain()
         self._streamer = await self._new_streamer()
         for item in replay:
-            self._pending.append(item)
-            response = await self._streamer.append(
+            await self._append_to_streamer(
                 markdown_text=item.markdown_text, chunks=item.chunks
             )
-            if response is not None:
-                self._pending.clear()
+
+    async def _append_to_streamer(
+        self, *, markdown_text: str | None, chunks: list[dict] | None
+    ) -> None:
+        """Append to the open stream, keeping the append until it lands.
+
+        The SDK helper returns a response only for a call that reached the
+        API; a buffered call returns None, leaving the append in the tail
+        for a rollover to replay.
+        """
+        self._pending.record(markdown_text=markdown_text, chunks=chunks)
+        response = await self._require_streamer().append(
+            markdown_text=markdown_text, chunks=chunks
+        )
+        if response is not None:
+            self._pending.clear()
 
     async def _new_streamer(self) -> AsyncChatStream:
         return await self._client.chat_stream(
