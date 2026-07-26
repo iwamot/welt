@@ -22,6 +22,7 @@ def test_required_variables_and_defaults():
 
     assert result.agent_arn == _RUNTIME_ARN
     assert result.agent_region == "us-west-2"
+    assert result.agent_qualifier is None
     assert result.slack_bot_token == _REQUIRED["SLACK_BOT_TOKEN"]
     assert result.log_level == "INFO"
     assert result.deps_log_level == "INFO"
@@ -40,6 +41,7 @@ def test_overrides_are_applied():
             "SLACK_STREAM_BUFFER_SIZE": "1024",
             "FILE_INPUT_MODALITIES": "image,document",
             "AGENT_MANAGES_HISTORY": "true",
+            "AGENT_QUALIFIER": "prod",
         }
     )
 
@@ -48,6 +50,7 @@ def test_overrides_are_applied():
     assert result.slack_stream_buffer_size == 1024
     assert result.file_input_modalities == ("image", "document")
     assert result.agent_manages_history is True
+    assert result.agent_qualifier == "prod"
 
 
 def test_missing_bot_token_is_rejected():
@@ -87,6 +90,36 @@ def test_local_mode_keeps_runtime_only_settings():
 
     assert result.file_input_modalities == ("image",)
     assert result.agent_manages_history is True
+    assert result.boot_warnings == ()
+
+
+def test_local_mode_ignores_the_qualifier_with_a_warning():
+    environ = {"SLACK_BOT_TOKEN": "xoxb-test", "AGENT_QUALIFIER": "prod"}
+
+    result = load_env(environ)
+
+    assert result.agent_qualifier is None
+    assert result.boot_warnings == (
+        (
+            "Ignoring AGENT_QUALIFIER: AGENT_ARN is not set, and the local "
+            "agent has no endpoints to select"
+        ),
+    )
+
+
+def test_empty_qualifier_boots_quietly_in_local_mode():
+    result = load_env({"SLACK_BOT_TOKEN": "xoxb-test", "AGENT_QUALIFIER": ""})
+
+    assert result.agent_qualifier is None
+    assert result.boot_warnings == ()
+
+
+def test_harness_arn_keeps_the_qualifier():
+    environ = {**_REQUIRED, "AGENT_ARN": _HARNESS_ARN, "AGENT_QUALIFIER": "prod"}
+
+    result = load_env(environ)
+
+    assert result.agent_qualifier == "prod"
     assert result.boot_warnings == ()
 
 

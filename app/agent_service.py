@@ -24,7 +24,7 @@ from collections.abc import AsyncIterator, Iterator
 import boto3
 from botocore.config import Config
 
-from app.agent_logic import is_harness_arn
+from app.agent_logic import build_qualifier_kwargs, is_harness_arn
 from app.converse_logic import Message, keep_messages_after_last_assistant
 from app.stream_logic import (
     RenderEvent,
@@ -108,6 +108,7 @@ def log_local_mode() -> None:
 def stream_agent_events(
     *,
     agent_arn: str | None,
+    agent_qualifier: str | None,
     messages: list[Message],
     session_id: str,
     user_id: str,
@@ -119,6 +120,8 @@ def stream_agent_events(
     Args:
         agent_arn (str | None): The ARN of the AgentCore Runtime agent or
             managed harness to invoke, or None for the local agent.
+        agent_qualifier (str | None): The endpoint to invoke on that target
+            (`Env.agent_qualifier`), or None for the DEFAULT endpoint.
         messages (list[Message]): The conversation, Converse-shaped.
         session_id (str): The runtimeSessionId (Slack thread/DM key).
         user_id (str): The runtimeUserId (verified Slack identity).
@@ -140,12 +143,14 @@ def stream_agent_events(
     if is_harness_arn(agent_arn):
         return _stream_harness_events(
             harness_arn=agent_arn,
+            qualifier=agent_qualifier,
             messages=messages,
             session_id=session_id,
             user_id=user_id,
         )
     return _stream_runtime_events(
         agent_arn=agent_arn,
+        qualifier=agent_qualifier,
         payload={"messages": messages},
         session_id=session_id,
         user_id=user_id,
@@ -155,6 +160,7 @@ def stream_agent_events(
 def stream_agent_resume_events(
     *,
     agent_arn: str | None,
+    agent_qualifier: str | None,
     interrupt_responses: dict,
     session_id: str,
     user_id: str,
@@ -170,6 +176,8 @@ def stream_agent_resume_events(
     Args:
         agent_arn (str | None): The ARN of the AgentCore Runtime agent to
             resume, or None for the local agent.
+        agent_qualifier (str | None): The endpoint the interrupted run was
+            invoked on, so the resume reaches the same agent version.
         interrupt_responses (dict): The collected answers, one value per
             interrupt id (`interrupt_logic.build_interrupt_responses`).
         session_id (str): The runtimeSessionId the interrupted run used.
@@ -183,6 +191,7 @@ def stream_agent_resume_events(
         return _stream_local_events(payload=payload, session_id=session_id)
     return _stream_runtime_events(
         agent_arn=agent_arn,
+        qualifier=agent_qualifier,
         payload=payload,
         session_id=session_id,
         user_id=user_id,
@@ -192,6 +201,7 @@ def stream_agent_resume_events(
 async def _stream_runtime_events(
     *,
     agent_arn: str,
+    qualifier: str | None,
     payload: dict,
     session_id: str,
     user_id: str,
@@ -206,6 +216,7 @@ async def _stream_runtime_events(
             contentType="application/json",
             accept="text/event-stream",
             payload=payload_bytes,
+            **build_qualifier_kwargs(qualifier),
         )
 
     response = await asyncio.to_thread(invoke)
@@ -267,6 +278,7 @@ async def _render_events_from_sse_lines(
 async def _stream_harness_events(
     *,
     harness_arn: str,
+    qualifier: str | None,
     messages: list[Message],
     session_id: str,
     user_id: str,
@@ -277,6 +289,7 @@ async def _stream_harness_events(
             runtimeSessionId=session_id,
             runtimeUserId=user_id,
             messages=messages,
+            **build_qualifier_kwargs(qualifier),
         )
 
     response = await asyncio.to_thread(invoke)

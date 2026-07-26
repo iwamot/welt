@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from app.agent_logic import (
+    build_qualifier_kwargs,
     build_runtime_session_id,
     build_runtime_user_id,
     is_harness_arn,
@@ -51,6 +52,14 @@ def test_user_id_combines_team_and_user():
 
 def test_user_id_without_team_uses_placeholder():
     assert build_runtime_user_id(team_id=None, user_id="U1") == "slack:-:U1"
+
+
+def test_qualifier_becomes_an_invoke_argument():
+    assert build_qualifier_kwargs("prod") == {"qualifier": "prod"}
+
+
+def test_no_qualifier_leaves_the_invoke_argument_out():
+    assert build_qualifier_kwargs(None) == {}
 
 
 def test_harness_arn_is_detected():
