@@ -1,8 +1,9 @@
-"""Pure logic for deciding which Slack files to fetch for the agent.
+"""Pure logic for deciding which Slack files to fetch, and how to retry.
 
 The actual download is I/O (`slack_file_service`); this module only inspects
-Slack file metadata and applies the allowed-modality configuration
-(`FILE_INPUT_MODALITIES`), so it can be covered by fixture-driven tests.
+Slack file metadata, applies the allowed-modality configuration
+(`FILE_INPUT_MODALITIES`), and judges a failed download's worth of another
+attempt, so it can be covered by fixture-driven tests.
 """
 
 from __future__ import annotations
@@ -70,6 +71,13 @@ MAX_BYTES_BY_MODALITY: dict[Modality, int] = {
 # Slack sometimes serves PDFs as a generic binary stream.
 _EXTRA_CONTENT_TYPES: dict[str, tuple[str, ...]] = {"pdf": ("binary/octet-stream",)}
 
+# How many times a single file download is attempted before the reply gives
+# up, and how long the first retry waits. A blip on the way to Slack's file
+# host would otherwise cost the whole reply, since one unreadable attachment
+# fails the turn.
+MAX_DOWNLOAD_ATTEMPTS = 3
+_FIRST_RETRY_DELAY_SECONDS = 0.5
+
 
 def parse_file_input_modalities(value: str) -> tuple[Modality, ...]:
     """
@@ -117,6 +125,39 @@ def expected_content_types(file_format: str) -> list[str]:
     """
     _, mime_types = CONVERSE_FORMATS[file_format]
     return [*mime_types, *_EXTRA_CONTENT_TYPES.get(file_format, ())]
+
+
+def is_retryable_status(status: int) -> bool:
+    """
+    Judge whether a failed download's status is worth another attempt.
+
+    Args:
+        status (int): The response status of a failed download.
+
+    Returns:
+        bool: True for 429 and the 5xx range — Slack asking to slow down, or
+            a bad moment on its side, both of which pass. False for anything
+            else: a file the bot may not read answers 403 however often it
+            is asked.
+    """
+    return status == 429 or 500 <= status < 600
+
+
+def retry_delay_seconds(attempt: int) -> float:
+    """
+    Say how long to wait after a failed attempt before making the next one.
+
+    The delay doubles per attempt, so a file host having a bad moment gets
+    progressively more room instead of a burst of identical retries.
+
+    Args:
+        attempt (int): The number of the attempt that just failed, counting
+            from 1.
+
+    Returns:
+        float: The seconds to wait before the next attempt.
+    """
+    return _FIRST_RETRY_DELAY_SECONDS * 2 ** (attempt - 1)
 
 
 @dataclass(frozen=True)
