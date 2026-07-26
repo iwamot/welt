@@ -5,6 +5,8 @@ import json
 from app.interrupt_logic import (
     DEFAULT_OPTIONS,
     METADATA_EVENT_TYPE,
+    Answer,
+    CollectionState,
     InterruptInput,
     InterruptOption,
     InterruptPrompt,
@@ -304,18 +306,33 @@ def test_initial_state_and_metadata_wrap():
 
     state = initial_collection_state(interrupts)
 
-    assert state == {"pending": ["i-1", "i-2"], "answers": {}}
+    assert state == CollectionState(pending=("i-1", "i-2"), answers={})
     assert build_collection_metadata(state) == {
         "event_type": METADATA_EVENT_TYPE,
-        "event_payload": state,
+        "event_payload": {"pending": ["i-1", "i-2"], "answers": {}},
     }
 
 
 def test_collection_state_round_trips_through_a_message():
-    metadata = build_collection_metadata({"pending": ["i-1"], "answers": {}})
-    message = {"ts": "1.0", "metadata": metadata}
+    state = CollectionState(
+        pending=("i-1", "i-2"), answers={"i-1": Answer(value="y", user="U1")}
+    )
+    message = {"ts": "1.0", "metadata": build_collection_metadata(state)}
 
-    assert parse_collection_state(message) == {"pending": ["i-1"], "answers": {}}
+    assert parse_collection_state(message) == state
+
+
+def test_metadata_carries_only_json_types():
+    state = CollectionState(
+        pending=("i-1",), answers={"i-1": Answer(value="y", user="U1")}
+    )
+
+    payload = build_collection_metadata(state)["event_payload"]
+
+    assert payload == {
+        "pending": ["i-1"],
+        "answers": {"i-1": {"value": "y", "user": "U1"}},
+    }
 
 
 def test_collection_state_rejects_foreign_or_broken_messages():
@@ -368,63 +385,102 @@ def test_collection_state_rejects_foreign_or_broken_messages():
         assert parse_collection_state(message) is None, message
 
 
+def test_a_mangled_answer_is_dropped_leaving_its_question_pending():
+    mangled = [
+        "not a dict",
+        {"user": "U1"},
+        {"value": 1, "user": "U1"},
+        {"value": "y"},
+        {"value": "y", "user": 1},
+    ]
+
+    for answer in mangled:
+        message = {
+            "metadata": {
+                "event_type": METADATA_EVENT_TYPE,
+                "event_payload": {"pending": ["i-1"], "answers": {"i-1": answer}},
+            }
+        }
+
+        state = parse_collection_state(message)
+
+        assert state == CollectionState(pending=("i-1",), answers={}), answer
+        assert is_fully_answered(state) is False
+
+
+def test_an_answer_under_a_non_string_id_is_dropped():
+    message = {
+        "metadata": {
+            "event_type": METADATA_EVENT_TYPE,
+            "event_payload": {
+                "pending": ["i-1"],
+                "answers": {1: {"value": "y", "user": "U1"}},
+            },
+        }
+    }
+
+    assert parse_collection_state(message) == CollectionState(
+        pending=("i-1",), answers={}
+    )
+
+
 def test_record_answer_fills_the_state():
-    state = {"pending": ["i-1", "i-2"], "answers": {}}
+    state = CollectionState(pending=("i-1", "i-2"), answers={})
 
     updated = record_answer(state, interrupt_id="i-1", value="y", user_id="U1")
 
-    assert updated == {
-        "pending": ["i-1", "i-2"],
-        "answers": {"i-1": {"value": "y", "user": "U1"}},
-    }
-    assert state["answers"] == {}  # the input state is not mutated
+    assert updated == CollectionState(
+        pending=("i-1", "i-2"), answers={"i-1": Answer(value="y", user="U1")}
+    )
+    assert state.answers == {}  # the input state is not mutated
 
 
 def test_record_answer_overwrites_an_earlier_answer():
-    state = {"pending": ["i-1"], "answers": {"i-1": {"value": "y", "user": "U1"}}}
+    state = CollectionState(
+        pending=("i-1",), answers={"i-1": Answer(value="y", user="U1")}
+    )
 
     updated = record_answer(state, interrupt_id="i-1", value="n", user_id="U2")
 
     assert updated is not None
-    assert updated["answers"]["i-1"] == {"value": "n", "user": "U2"}
+    assert updated.answers["i-1"] == Answer(value="n", user="U2")
 
 
 def test_record_answer_rejects_an_unknown_interrupt():
-    state = {"pending": ["i-1"], "answers": {}}
+    state = CollectionState(pending=("i-1",), answers={})
 
     assert record_answer(state, interrupt_id="i-9", value="y", user_id="U1") is None
 
 
 def test_is_fully_answered():
-    partial = {"pending": ["i-1", "i-2"], "answers": {"i-1": {"value": "y"}}}
-    full = {
-        "pending": ["i-1", "i-2"],
-        "answers": {"i-1": {"value": "y"}, "i-2": {"value": "n"}},
-    }
+    partial = CollectionState(
+        pending=("i-1", "i-2"), answers={"i-1": Answer(value="y", user="U1")}
+    )
+    full = CollectionState(
+        pending=("i-1", "i-2"),
+        answers={
+            "i-1": Answer(value="y", user="U1"),
+            "i-2": Answer(value="n", user="U2"),
+        },
+    )
 
     assert is_fully_answered(partial) is False
     assert is_fully_answered(full) is True
 
 
 def test_interrupt_responses_follow_pending_order():
-    state = {
-        "pending": ["i-1", "i-2"],
-        "answers": {
-            "i-2": {"value": "n", "user": "U2"},
-            "i-1": {"value": "y", "user": "U1"},
+    state = CollectionState(
+        pending=("i-1", "i-2"),
+        answers={
+            "i-2": Answer(value="n", user="U2"),
+            "i-1": Answer(value="y", user="U1"),
         },
-    }
+    )
 
     responses = build_interrupt_responses(state)
 
     assert responses == {"i-1": "y", "i-2": "n"}
     assert list(responses) == ["i-1", "i-2"]
-
-
-def test_interrupt_responses_tolerate_a_mangled_answer():
-    state = {"pending": ["i-1", "i-2"], "answers": {"i-1": "y", "i-2": {"value": 1}}}
-
-    assert build_interrupt_responses(state) == {"i-1": "", "i-2": ""}
 
 
 # --- parse_button_value ---------------------------------------------------------
