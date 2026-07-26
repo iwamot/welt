@@ -25,7 +25,7 @@ repair.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from app.bolt_logic import INTERRUPT_ACTION_PREFIX
@@ -414,7 +414,29 @@ def parse_button_value(value: object) -> tuple[str, str] | None:
     return interrupt_id, choice
 
 
-def initial_collection_state(interrupts: Sequence[Interrupt]) -> dict:
+@dataclass(frozen=True)
+class Answer:
+    """One recorded press: the option value it chose, and who chose it."""
+
+    value: str
+    user: str
+
+
+@dataclass(frozen=True)
+class CollectionState:
+    """What a button message has asked and collected so far.
+
+    Welt keeps no state of its own, so this rides in the message's own
+    metadata between presses. It is Welt-written, but a round trip through
+    Slack is still a round trip through the outside world, which is why
+    `parse_collection_state` — the only way back in — revalidates it.
+    """
+
+    pending: tuple[str, ...]
+    answers: Mapping[str, Answer]
+
+
+def initial_collection_state(interrupts: Sequence[Interrupt]) -> CollectionState:
     """
     Build the collection state for a freshly posted button message.
 
@@ -422,35 +444,50 @@ def initial_collection_state(interrupts: Sequence[Interrupt]) -> dict:
         interrupts (Sequence[Interrupt]): The interrupts of one stop.
 
     Returns:
-        dict: The state — every interrupt pending, no answers yet.
+        CollectionState: The state — every interrupt pending, no answers yet.
     """
-    return {"pending": [interrupt.id for interrupt in interrupts], "answers": {}}
+    return CollectionState(
+        pending=tuple(interrupt.id for interrupt in interrupts), answers={}
+    )
 
 
-def build_collection_metadata(state: dict) -> dict:
+def build_collection_metadata(state: CollectionState) -> dict:
     """
     Wrap a collection state as Slack message metadata.
 
     Args:
-        state (dict): The collection state (pending ids and answers).
+        state (CollectionState): The collection state to carry.
 
     Returns:
         dict: The `metadata` argument for chat.postMessage / chat.update.
     """
-    return {"event_type": METADATA_EVENT_TYPE, "event_payload": state}
+    return {
+        "event_type": METADATA_EVENT_TYPE,
+        "event_payload": {
+            "pending": list(state.pending),
+            "answers": {
+                interrupt_id: {"value": answer.value, "user": answer.user}
+                for interrupt_id, answer in state.answers.items()
+            },
+        },
+    }
 
 
-def parse_collection_state(message: object) -> dict | None:
+def parse_collection_state(message: object) -> CollectionState | None:
     """
     Read the collection state back out of a button message.
+
+    An answer that did not survive the round trip intact is dropped rather
+    than repaired, which leaves its question pending: pressing again is
+    the recovery, and resuming the agent with an answer nobody gave is not.
 
     Args:
         message (object): The message object (from the block_actions
             payload, or fetched with include_all_metadata).
 
     Returns:
-        dict | None: The validated state, or None when the message carries
-            no intact welt_interrupt metadata.
+        CollectionState | None: The validated state, or None when the
+            message carries no intact welt_interrupt metadata.
     """
     if not isinstance(message, dict):
         return None
@@ -466,18 +503,44 @@ def parse_collection_state(message: object) -> dict | None:
     answers = state.get("answers")
     if not isinstance(pending, list) or not pending:
         return None
-    if not all(
-        isinstance(interrupt_id, str) and interrupt_id for interrupt_id in pending
-    ):
+    pending_ids = tuple(
+        interrupt_id
+        for interrupt_id in pending
+        if isinstance(interrupt_id, str) and interrupt_id
+    )
+    if len(pending_ids) != len(pending):
         return None
     if not isinstance(answers, dict):
         return None
-    return {"pending": pending, "answers": answers}
+    return CollectionState(pending=pending_ids, answers=_parsed_answers(answers))
+
+
+def _parsed_answers(answers: dict) -> dict[str, Answer]:
+    """
+    Validate the recorded answers of a state read back from metadata.
+
+    Args:
+        answers (dict): The state's `answers` value, straight from the
+            message metadata.
+
+    Returns:
+        dict[str, Answer]: The entries carrying both a value and an
+            answerer; anything else is left out.
+    """
+    parsed: dict[str, Answer] = {}
+    for interrupt_id, answer in answers.items():
+        if not isinstance(interrupt_id, str) or not isinstance(answer, dict):
+            continue
+        value = answer.get("value")
+        user = answer.get("user")
+        if isinstance(value, str) and isinstance(user, str):
+            parsed[interrupt_id] = Answer(value=value, user=user)
+    return parsed
 
 
 def record_answer(
-    state: dict, *, interrupt_id: str, value: str, user_id: str
-) -> dict | None:
+    state: CollectionState, *, interrupt_id: str, value: str, user_id: str
+) -> CollectionState | None:
     """
     Record one button press into a collection state.
 
@@ -486,38 +549,37 @@ def record_answer(
     recovers by pressing again (accepted, documented).
 
     Args:
-        state (dict): The current collection state.
+        state (CollectionState): The current collection state.
         interrupt_id (str): The interrupt the pressed button belongs to.
         value (str): The option value the press selected.
         user_id (str): The Slack user id of the presser, for the audit
             trail in the metadata.
 
     Returns:
-        dict | None: The new state, or None when the interrupt id is not
-            one this message is collecting.
+        CollectionState | None: The new state, or None when the interrupt
+            id is not one this message is collecting.
     """
-    if interrupt_id not in state["pending"]:
+    if interrupt_id not in state.pending:
         return None
-    answers = dict(state["answers"])
-    answers[interrupt_id] = {"value": value, "user": user_id}
-    return {"pending": state["pending"], "answers": answers}
+    answers = dict(state.answers)
+    answers[interrupt_id] = Answer(value=value, user=user_id)
+    return CollectionState(pending=state.pending, answers=answers)
 
 
-def is_fully_answered(state: dict) -> bool:
+def is_fully_answered(state: CollectionState) -> bool:
     """
     Check whether every pending interrupt has an answer.
 
     Args:
-        state (dict): The collection state.
+        state (CollectionState): The collection state.
 
     Returns:
         bool: True when the collected answers cover all pending ids.
     """
-    answers = state["answers"]
-    return all(interrupt_id in answers for interrupt_id in state["pending"])
+    return all(interrupt_id in state.answers for interrupt_id in state.pending)
 
 
-def build_interrupt_responses(state: dict) -> dict:
+def build_interrupt_responses(state: CollectionState) -> dict:
     """
     Build the resume payload's `interrupt_responses` from a full state.
 
@@ -526,35 +588,20 @@ def build_interrupt_responses(state: dict) -> dict:
     framework's resume input is the agent-side adapter's job.
 
     Args:
-        state (dict): The fully answered collection state.
+        state (CollectionState): The collection state, which
+            `is_fully_answered` must have accepted: the wire carries a
+            resume only once every question has an answer.
 
     Returns:
         dict: The answer value per interrupt id, in pending order.
+
+    Raises:
+        KeyError: If a pending interrupt has no answer yet.
     """
-    answers = state["answers"]
     return {
-        interrupt_id: _answer_value(answers.get(interrupt_id))
-        for interrupt_id in state["pending"]
+        interrupt_id: state.answers[interrupt_id].value
+        for interrupt_id in state.pending
     }
-
-
-def _answer_value(answer: object) -> str:
-    """
-    Extract the selected value from one recorded answer.
-
-    Args:
-        answer (object): An entry of the state's `answers` (Welt-written,
-            but round-tripped through Slack metadata, so shape-checked).
-
-    Returns:
-        str: The recorded option value, or an empty string when the entry
-            lost its shape in the round trip.
-    """
-    if isinstance(answer, dict):
-        value = answer.get("value")
-        if isinstance(value, str):
-            return value
-    return ""
 
 
 # The per-widget block_id suffixes of build_interrupt_blocks, named after
