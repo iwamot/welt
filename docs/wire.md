@@ -51,7 +51,7 @@ The value is the conversation as [Bedrock Converse-shaped messages](https://docs
 - **Attribution** — each `user` text is prefixed with the speaker's mention (`<@U0123456>: `), so the model can attribute turns in a multi-party thread.
 - **History** — by default the payload carries the whole thread. When the agent keeps its own history (the operator sets `AGENT_MANAGES_HISTORY`), it carries only the messages after Welt's last reply — the ones the agent has not seen.
 
-Slack uploads arrive as Converse `image` / `document` / `video` content blocks inside the `user` message of the reply that carried them — documents before the text block, images and videos after it (Converse rejects some block orders). JSON cannot carry raw bytes, so each block's `source.bytes` slot holds a **base64 string**, and decoding it back to bytes before the messages reach the model is the agent side's job:
+Slack uploads arrive as Converse `image` / `document` / `video` content blocks inside the `user` message of the reply that carried them — documents before the text block, images and videos after it (Converse rejects some block orders). JSON cannot carry raw bytes, so each block's `source.bytes` slot holds a **base64 string**, and getting it back to bytes before the model sees it is the agent side's job — whether the adapter decodes it, or hands the string to a framework whose own content shape takes base64:
 
 ```json
 {"image": {"format": "png", "source": {"bytes": "<base64>"}}}
@@ -74,6 +74,20 @@ The value maps each [`interrupt` event's](#interrupt) id to the answer a human g
 ```
 
 The mapping is deliberately framework-neutral; turning it into the framework's own resume input is the adapter's job. Welt sends it only after every pending question is answered — there is no partial resume.
+
+### Malformed payloads
+
+Welt sends what this page describes. A payload that departs from it is a bug on the sending side rather than an input to interpret, so an adapter may reject one however its language reports failure — raising is what a caller expects.
+
+What an adapter must not do is quietly turn it into something usable:
+
+- **Dropping a malformed message** and decoding the rest leaves the agent answering a conversation with a turn missing.
+- **Reading a `messages` value that is not an array as an empty conversation** hands the agent zero turns instead of saying it understood none.
+- **Decoding base64 that was never valid** yields plausible garbage, in the decoders that discard invalid characters rather than failing.
+
+None of this asks for validation of its own: what an adapter does not inspect it may pass on unchanged, leaving the framework beneath it to refuse. The rule is only that a violation must not reach the agent as a smaller, emptier, or corrupted version of itself.
+
+This is the reverse of the [reply direction](#reply-events), where Welt ignores what it cannot render. An unrecognized event there is the framework's own business and skipping it costs nothing; every entry here is something a human said.
 
 ## Reply events
 
