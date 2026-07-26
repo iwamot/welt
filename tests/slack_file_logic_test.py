@@ -4,10 +4,13 @@ import pytest
 
 from app.slack_file_logic import (
     MAX_BYTES_BY_MODALITY,
+    MAX_DOWNLOAD_ATTEMPTS,
     MAX_SLOTS_BY_MODALITY,
     FileToFetch,
     expected_content_types,
+    is_retryable_status,
     parse_file_input_modalities,
+    retry_delay_seconds,
     select_files_to_fetch,
 )
 
@@ -68,6 +71,48 @@ def test_expected_content_types_are_the_mapped_mime_types():
 
 def test_expected_content_types_for_pdf_allow_generic_binary():
     assert expected_content_types("pdf") == ["application/pdf", "binary/octet-stream"]
+
+
+# --- is_retryable_status -----------------------------------------------------
+
+
+def test_rate_limiting_is_worth_another_attempt():
+    assert is_retryable_status(429) is True
+
+
+def test_server_side_failures_are_worth_another_attempt():
+    assert is_retryable_status(500) is True
+    assert is_retryable_status(503) is True
+    assert is_retryable_status(599) is True
+
+
+def test_a_refusal_stays_a_refusal():
+    assert is_retryable_status(401) is False
+    assert is_retryable_status(403) is False
+    assert is_retryable_status(404) is False
+
+
+def test_statuses_outside_the_server_range_are_not_retried():
+    assert is_retryable_status(302) is False
+    assert is_retryable_status(600) is False
+
+
+# --- retry_delay_seconds -----------------------------------------------------
+
+
+def test_the_delay_doubles_per_attempt():
+    assert retry_delay_seconds(1) == 0.5
+    assert retry_delay_seconds(2) == 1.0
+    assert retry_delay_seconds(3) == 2.0
+
+
+def test_every_retry_the_attempt_limit_allows_has_a_delay():
+    delays = [
+        retry_delay_seconds(attempt) for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS)
+    ]
+
+    assert delays == sorted(delays)
+    assert all(delay > 0 for delay in delays)
 
 
 # --- select_files_to_fetch ---------------------------------------------------
