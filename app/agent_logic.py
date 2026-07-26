@@ -83,6 +83,25 @@ def parse_arn_region(arn: str) -> str | None:
     return None
 
 
+def build_qualifier_kwargs(qualifier: str | None) -> dict[str, str]:
+    """
+    Build the endpoint argument both invoke APIs take.
+
+    InvokeAgentRuntime and InvokeHarness each accept the target endpoint as
+    an optional `qualifier`, and neither accepts None for it: no endpoint
+    means leaving the argument out, which AgentCore resolves to the DEFAULT
+    endpoint.
+
+    Args:
+        qualifier (str | None): The configured endpoint name
+            (`Env.agent_qualifier`), or None for the DEFAULT endpoint.
+
+    Returns:
+        dict[str, str]: Keyword arguments to spread into the invoke call.
+    """
+    return {} if qualifier is None else {"qualifier": qualifier}
+
+
 def is_harness_arn(arn: str) -> bool:
     """
     Check whether an AgentCore ARN points at a managed harness.

@@ -28,6 +28,11 @@ class Env:
     # targets it directly, so no separate region setting exists. None exactly
     # when `agent_arn` is None — local mode has no region.
     agent_region: str | None
+    # The endpoint to invoke on the target named by `agent_arn`, sent as the
+    # `qualifier` both invoke APIs take. None sends no qualifier at all,
+    # which AgentCore resolves to the DEFAULT endpoint. Local mode has no
+    # endpoints, so this is None whenever `agent_arn` is.
+    agent_qualifier: str | None
     # The Slack bot token (xoxb) for Web API calls. Transport credentials
     # (the Socket Mode xapp token, the HTTP signing secret) belong to the
     # entry points, which read them with `require_env`.
@@ -72,11 +77,11 @@ def load_env(environ: Mapping[str, str]) -> Env:
     ARN exists to configure. A forgotten AGENT_ARN thus boots into local
     mode — the startup check on the local agent is what catches it.
 
-    Settings that only apply to a Runtime agent (FILE_INPUT_MODALITIES,
-    AGENT_MANAGES_HISTORY) are ignored for a harness target, each reported
-    as a `boot_warnings` entry instead of failing the boot: the harness
-    accepts text content only and always keeps the conversation history
-    itself, so Welt behaves accordingly no matter what they say.
+    Settings the target cannot honor are ignored, each reported as a
+    `boot_warnings` entry instead of failing the boot. A harness ignores the
+    Runtime-only FILE_INPUT_MODALITIES and AGENT_MANAGES_HISTORY — it accepts
+    text content only and always keeps the conversation history itself — and
+    local mode ignores AGENT_QUALIFIER, having no endpoints to select.
 
     Returns:
         Env: The validated configuration.
@@ -106,6 +111,13 @@ def load_env(environ: Mapping[str, str]) -> Env:
             "Ignoring AGENT_MANAGES_HISTORY: AGENT_ARN is a harness "
             "ARN, and the harness keeps the conversation history itself"
         )
+    agent_qualifier = environ.get("AGENT_QUALIFIER") or None
+    if agent_arn is None and agent_qualifier is not None:
+        agent_qualifier = None
+        boot_warnings.append(
+            "Ignoring AGENT_QUALIFIER: AGENT_ARN is not set, and the local "
+            "agent has no endpoints to select"
+        )
     file_input_modalities = parse_file_input_modalities(
         environ.get("FILE_INPUT_MODALITIES", "")
     )
@@ -118,6 +130,7 @@ def load_env(environ: Mapping[str, str]) -> Env:
     return Env(
         agent_arn=agent_arn,
         agent_region=agent_region,
+        agent_qualifier=agent_qualifier,
         slack_bot_token=require_env(environ, "SLACK_BOT_TOKEN"),
         log_level=environ.get("LOG_LEVEL", "INFO"),
         deps_log_level=environ.get("DEPS_LOG_LEVEL", "INFO"),
