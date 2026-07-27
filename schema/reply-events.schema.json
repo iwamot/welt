@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Welt reply event",
+  "description": "One event of the agent's reply stream, specified in prose by docs/wire.md. Unlike the request payload, this direction is not a rejection contract: Welt reads the six keys named here and ignores everything else. So this states one thing only — if an event carries one of the six, this is the shape Welt reads it in. Everything else about the event is the framework's own business.",
+  "type": "object",
+  "properties": {
+    "data": { "$ref": "#/$defs/data" },
+    "current_tool_use": { "$ref": "#/$defs/currentToolUse" },
+    "tool_result": { "$ref": "#/$defs/toolResult" },
+    "file": { "$ref": "#/$defs/file" },
+    "interrupt": { "$ref": "#/$defs/interrupt" },
+    "error": { "$ref": "#/$defs/error" }
+  },
+  "$defs": {
+    "data": {
+      "description": "A chunk of the streamed reply, rendered as standard Markdown.",
+      "type": "string",
+      "minLength": 1
+    },
+    "currentToolUse": {
+      "description": "A tool the agent is invoking. Welt renders an indicator for it, and takes the fields it recognizes from whatever the framework's own event carries.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "toolUseId": { "type": "string" }
+      }
+    },
+    "toolResult": {
+      "description": "A finished tool, which closes that tool's indicator.",
+      "type": "object",
+      "properties": {
+        "toolUseId": { "type": "string" },
+        "status": { "enum": ["success", "error"] }
+      }
+    },
+    "file": {
+      "description": "A file the agent produced, which Welt uploads into the thread.",
+      "type": "object",
+      "required": ["name", "bytes"],
+      "properties": {
+        "name": {
+          "description": "The upload filename, extension included.",
+          "type": "string",
+          "minLength": 1
+        },
+        "bytes": {
+          "description": "The file's content, base64-encoded. Welt does refuse a string that fails to decode, which no schema keyword asserts.",
+          "type": "string",
+          "contentEncoding": "base64"
+        }
+      }
+    },
+    "interrupt": {
+      "description": "A question the run stopped on. Welt renders one per pending interrupt and resumes once every one is answered.",
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "description": "Identifies the question in the resume payload.",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "Goes to Welt's log only.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Any JSON value; its shape alone decides the rendering. The structured shape renders as the widgets it specifies, a non-empty string as that text, anything else as pretty-printed JSON — the latter two with the default Approve / Deny buttons."
+        }
+      }
+    },
+    "error": {
+      "description": "A reply failure, normally emitted by the AgentCore Runtime SDK when the agent raises mid-stream rather than by an adapter.",
+      "type": "string"
+    },
+    "structuredReason": {
+      "description": "The interrupt reason Welt renders as a message with widgets. Matching is all-or-nothing: a reason that fails this falls back to the default rendering rather than being partly repaired.",
+      "type": "object",
+      "required": ["message"],
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "description": "The question body, rendered as standard Markdown.",
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "description": "The choice buttons, at most what one Slack actions block holds.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 25,
+          "items": { "$ref": "#/$defs/interruptOption" }
+        },
+        "input": { "$ref": "#/$defs/interruptInput" }
+      },
+      "anyOf": [{ "required": ["options"] }, { "required": ["input"] }]
+    },
+    "interruptOption": {
+      "type": "object",
+      "required": ["value"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "description": "The answer the interrupting tool receives when the button is pressed.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1800
+        },
+        "label": {
+          "description": "The button text; defaults to the value.",
+          "type": "string",
+          "minLength": 1
+        },
+        "style": { "enum": ["primary", "danger"] }
+      }
+    },
+    "interruptInput": {
+      "description": "The free-text field whose submitted text becomes the answer.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "description": "The field's label; defaults to \"Answer\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "multiline": {
+          "description": "Whether the field takes more than one line; defaults to false.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

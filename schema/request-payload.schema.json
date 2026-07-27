@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Welt request payload",
+  "description": "The JSON Welt sends to the agent, specified in prose by docs/wire.md. A payload that fails this schema is a bug on the sending side; see the wire contract's Malformed payloads section for what an adapter may do about it. What this schema cannot express stays in the prose: the content block order, the speaker prefix of a user text, and the suffix that keeps document names unique.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["messages"],
+      "additionalProperties": false,
+      "properties": {
+        "messages": { "$ref": "#/$defs/messages" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["interrupt_responses"],
+      "additionalProperties": false,
+      "properties": {
+        "interrupt_responses": { "$ref": "#/$defs/interruptResponses" }
+      }
+    }
+  ],
+  "$defs": {
+    "messages": {
+      "title": "A conversation turn",
+      "description": "The Slack thread as Bedrock Converse-shaped messages, oldest first. Never empty, and the first message is always a user one.",
+      "type": "array",
+      "minItems": 1,
+      "prefixItems": [{ "$ref": "#/$defs/userMessage" }],
+      "items": { "$ref": "#/$defs/message" }
+    },
+    "message": {
+      "oneOf": [
+        { "$ref": "#/$defs/userMessage" },
+        { "$ref": "#/$defs/assistantMessage" }
+      ]
+    },
+    "userMessage": {
+      "description": "A Slack message, which carries the uploads it came with.",
+      "type": "object",
+      "required": ["role", "content"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "const": "user" },
+        "content": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/textBlock" },
+              { "$ref": "#/$defs/imageBlock" },
+              { "$ref": "#/$defs/documentBlock" },
+              { "$ref": "#/$defs/videoBlock" }
+            ]
+          }
+        }
+      }
+    },
+    "assistantMessage": {
+      "description": "One of Welt's own earlier replies, which is text and nothing else.",
+      "type": "object",
+      "required": ["role", "content"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "const": "assistant" },
+        "content": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/textBlock" }
+        }
+      }
+    },
+    "textBlock": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "imageBlock": {
+      "type": "object",
+      "required": ["image"],
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "required": ["format", "source"],
+          "additionalProperties": false,
+          "properties": {
+            "format": { "enum": ["gif", "jpeg", "png", "webp"] },
+            "source": { "$ref": "#/$defs/source" }
+          }
+        }
+      }
+    },
+    "documentBlock": {
+      "type": "object",
+      "required": ["document"],
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "type": "object",
+          "required": ["format", "name", "source"],
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "enum": [
+                "csv",
+                "doc",
+                "docx",
+                "html",
+                "md",
+                "pdf",
+                "txt",
+                "xls",
+                "xlsx"
+              ]
+            },
+            "name": {
+              "description": "The document's handle for the model, not the Slack file name: what Converse accepts of it, made unique within the payload. The length and the characters are Converse's own conditions — a name outside them is a request Bedrock refuses.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[0-9A-Za-z()\\[\\] -]+$"
+            },
+            "source": { "$ref": "#/$defs/source" }
+          }
+        }
+      }
+    },
+    "videoBlock": {
+      "type": "object",
+      "required": ["video"],
+      "additionalProperties": false,
+      "properties": {
+        "video": {
+          "type": "object",
+          "required": ["format", "source"],
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "enum": [
+                "flv",
+                "mkv",
+                "mov",
+                "mp4",
+                "mpeg",
+                "mpg",
+                "three_gp",
+                "webm",
+                "wmv"
+              ]
+            },
+            "source": { "$ref": "#/$defs/source" }
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["bytes"],
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "description": "The file's bytes, base64-encoded because JSON carries no raw bytes. Whether the string decodes is left to whatever decodes it: contentEncoding annotates, it does not assert.",
+          "type": "string",
+          "minLength": 1,
+          "contentEncoding": "base64"
+        }
+      }
+    },
+    "interruptResponses": {
+      "title": "Answers resuming an interrupted run",
+      "description": "The answer a human gave per interrupt id — a button's value, or the submitted text. Welt sends it only once every pending question is answered, so it is never empty.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}
