@@ -35,6 +35,8 @@ Every request carries exactly one of two envelope keys, and key presence is the 
 | [`messages`](#messages--a-conversation-turn) | A conversation turn |
 | [`interrupt_responses`](#interrupt_responses--resuming-a-run) | Answers resuming an interrupted run |
 
+[`request-payload.schema.json`](../schema/request-payload.schema.json) states the payload's shapes as a JSON Schema — which roles and content blocks are allowed where, and the `format` tokens a file block can carry — and Welt's own tests check what it builds against it, so the two cannot drift. The sections below cover what a schema cannot say: what the parts mean, in what order they arrive, and where their values come from.
+
 ### `messages` — a conversation turn
 
 The value is the conversation as [Bedrock Converse-shaped messages](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Message.html), oldest first:
@@ -47,7 +49,7 @@ The value is the conversation as [Bedrock Converse-shaped messages](https://docs
 }
 ```
 
-- **Roles** — Welt's own earlier replies are `assistant` messages; everything else is a `user` message. The conversation always starts with a `user` message.
+- **Roles** — Welt's own earlier replies are `assistant` messages; everything else is a `user` message.
 - **Attribution** — each `user` text is prefixed with the speaker's mention (`<@U0123456>: `), so the model can attribute turns in a multi-party thread.
 - **History** — by default the payload carries the whole thread. When the agent keeps its own history (the operator sets `AGENT_MANAGES_HISTORY`), it carries only the messages after Welt's last reply — the ones the agent has not seen.
 
@@ -59,7 +61,7 @@ Slack uploads arrive as Converse `image` / `document` / `video` content blocks i
 {"video": {"format": "mp4", "source": {"bytes": "<base64>"}}}
 ```
 
-A document's `name` is its handle for the model, not the name of the file in Slack. Welt puts the Slack file name through what Converse accepts — only alphanumerics, single spaces, hyphens, parentheses, and square brackets survive, up to 200 characters — and, because Converse rejects a request whose messages carry two documents under one name, gives a name an earlier document already took a ` (2)`, ` (3)`, … suffix. What Welt accepts from Slack and embeds is bounded by [Limits](#limits).
+A document's `name` is its handle for the model, not the name of the file in Slack: Welt puts the Slack file name through what Converse accepts, and, because Converse rejects a request whose messages carry two documents under one name, gives a name an earlier document already took a ` (2)`, ` (3)`, … suffix. What Welt accepts from Slack and embeds is bounded by [Limits](#limits).
 
 ### `interrupt_responses` — resuming a run
 
@@ -77,7 +79,7 @@ The mapping is deliberately framework-neutral; turning it into the framework's o
 
 ### Malformed payloads
 
-Welt sends what this page describes. A payload that departs from it is a bug on the sending side rather than an input to interpret, so an adapter may reject one however its language reports failure — raising is what a caller expects.
+Welt sends what this page and [`request-payload.schema.json`](../schema/request-payload.schema.json) describe. A payload that departs from them is a bug on the sending side rather than an input to interpret, so an adapter may reject one however its language reports failure — raising is what a caller expects.
 
 What an adapter must not do is quietly turn it into something usable:
 
@@ -93,14 +95,16 @@ This is the reverse of the [reply direction](#reply-events), where Welt ignores 
 
 Welt renders six event keys and ignores everything else, so extra framework events can stay on the stream. An event whose shape fails validation (a non-string where a string is required, malformed base64) is ignored too.
 
-| Event | Shape | Welt renders it as |
-|---|---|---|
-| `data` | `{"data": "<text>"}` | A chunk of the streamed reply, as standard Markdown |
-| `current_tool_use` | `{"current_tool_use": {"name": "...", "toolUseId": "..."}}` | A "using tool" indicator |
-| `tool_result` | `{"tool_result": {"toolUseId": "...", "status": "success" \| "error"}}` | Closes that tool's indicator |
-| `file` | `{"file": {"name": "...", "bytes": "<base64>"}}` | A file uploaded into the thread |
-| `interrupt` | `{"interrupt": {"id": "...", "name": "...", "reason": <any JSON>}}` | A question, as buttons and/or a text field |
-| `error` | `{"error": "<message>"}` | A reply failure notice |
+[`reply-events.schema.json`](../schema/reply-events.schema.json) states the six shapes, and Welt's own tests check that what it describes is what Welt renders. It is not a rejection contract in the way the [request payload](#request-payload) is: Welt takes the keys it recognizes and lets the rest by, so an event may carry more than the schema names.
+
+| Event | Welt renders it as |
+|---|---|
+| `data` | A chunk of the streamed reply, as standard Markdown |
+| `current_tool_use` | A "using tool" indicator |
+| `tool_result` | Closes that tool's indicator |
+| `file` | A file uploaded into the thread |
+| `interrupt` | A question, as buttons and/or a text field |
+| `error` | A reply failure notice |
 
 `error` is normally emitted by the AgentCore Runtime SDK when the agent raises mid-stream — an adapter does not need to produce it.
 
@@ -129,18 +133,9 @@ A **structured reason** renders as a message with the specified widgets. It is a
 }
 ```
 
-| Field | Required | Constraints |
-|---|---|---|
-| `message` | yes | Non-empty string; the question body, rendered as standard Markdown |
-| `options` | one of `options` / `input` | Non-empty list of at most 25 buttons |
-| `options[].value` | yes | Non-empty string, at most 1800 characters; becomes the answer |
-| `options[].label` | no | Button text; defaults to `value` |
-| `options[].style` | no | `"primary"` or `"danger"` only |
-| `input` | one of `options` / `input` | Object; a free-text field whose submitted text becomes the answer |
-| `input.label` | no | The field's label; defaults to `"Answer"` |
-| `input.multiline` | no | Boolean; defaults to `false` |
+A pressed button answers with its `value`, and the text submitted in the field answers with itself — whichever comes first settles the question. A button's `label` defaults to its `value`, and the field's to `"Answer"`.
 
-Matching is all-or-nothing: one malformed field, or any key beyond the above, drops the whole reason to the fallback rendering — no partial repair. Any non-structured reason (a plain string, or any other JSON value) still renders as an answerable question with the default Approve / Deny buttons. The shapes are frozen at these fields; emoji, confirm dialogs, URLs and the like are beyond Welt's abstraction and will not be added.
+Matching is all-or-nothing: one malformed field, or any key the schema does not name, drops the whole reason to the fallback rendering — no partial repair. Any non-structured reason (a plain string, or any other JSON value) still renders as an answerable question with the default Approve / Deny buttons. The shape is frozen at the fields the schema carries; emoji, confirm dialogs, URLs and the like are beyond Welt's abstraction and will not be added.
 
 ## Limits
 
