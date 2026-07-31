@@ -42,6 +42,11 @@ dev = [
 [tool.uv]
 exclude-newer = "1 day"
 
+[tool.uv.audit]
+# Check the locked packages against OSV malware advisories before any sync
+# installs them, so a compromised release cannot run its install hooks here.
+malware-check = true
+
 [tool.ruff]
 include = ["*.py", "app/**/*.py", "tests/**/*.py"]
 
