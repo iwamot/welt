@@ -93,7 +93,7 @@ This is the reverse of the [reply direction](#reply-events), where Welt ignores 
 
 ## Reply events
 
-Welt renders six event keys and ignores everything else, so an event may carry more than the keys named here. One whose shape Welt cannot read (a non-string where a string is required, malformed base64) is ignored too.
+Welt renders six event keys and ignores everything else, so an event may carry more than the keys named here. One whose shape Welt cannot read (a non-string where a string is required, malformed base64) is ignored too, as is an empty `data` — the models do emit empty text deltas, and nothing renders for them.
 
 | Event | Welt renders it as |
 |---|---|
@@ -104,7 +104,7 @@ Welt renders six event keys and ignores everything else, so an event may carry m
 | `interrupt` | A question, as buttons and/or a text field |
 | `error` | A reply failure notice |
 
-This direction has no machine-readable specification, unlike the [request payload](#request-payload), because Welt is the receiving side of it: what an event carries is decided by the agent frameworks and AWS. A constraint stated about someone else's output holds only until the next framework, or the next version of one, so this page describes what Welt reads and how it renders that, rather than what an agent is allowed to put on the stream.
+This direction has no machine-readable specification, unlike the [request payload](#request-payload), because Welt is the receiving side of it: what an event carries is decided by the agent frameworks and AWS. A constraint stated about someone else's output holds only until the next framework, or the next version of one, so this page describes what Welt reads and how it renders that, rather than what an agent is allowed to put on the stream. The empty `data` above is the kind of thing a constraint like that gets wrong.
 
 `error` is normally emitted by the AgentCore Runtime SDK when the agent raises mid-stream — an adapter does not need to produce it. An empty string renders as `unknown error`.
 
