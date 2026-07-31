@@ -1,8 +1,8 @@
 """Pure logic for parsing the agent's reply stream into render events.
 
-An AgentCore Runtime agent yields Strands `stream_async` event dicts, which
-the Runtime emits as SSE (`data: {json}\\n\\n`). A managed harness returns a
-typed event stream (`contentBlockDelta` / `contentBlockStart` /
+An AgentCore Runtime agent yields the JSON events `docs/wire.md` specifies,
+which the Runtime emits as SSE (`data: {json}\\n\\n`). A managed harness
+returns a typed event stream (`contentBlockDelta` / `contentBlockStart` /
 `runtimeClientError`) instead. Both dialects are parsed into the same small
 render model — a text delta, a tool-use indicator, a generated file, or a
 stream error — and everything else is ignored.
@@ -13,7 +13,10 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -95,22 +98,22 @@ def parse_sse_data_line(line: str) -> dict | None:
 
 def parse_stream_event(event: dict) -> RenderEvent | None:
     """
-    Classify one Strands `stream_async` event into a render model.
+    Classify one reply-stream event into a render model.
 
     A `data` string is assistant text; a `current_tool_use` dict is a tool
-    invocation (name for the indicator); a `tool_result` dict closes that
-    indicator (the agent derives it from the Strands tool-result message,
-    keeping only the toolUseId and status); a `file` dict is a generated file
-    (the agent base64-encodes the raw bytes for the JSON wire — the inbound
-    file encoding in reverse); an `interrupt` dict is a question the agent
-    stopped on (id and name must be strings; the reason stays whatever JSON
-    value the agent sent, since interpreting it is the rendering layer's
-    job); an `error` string is the AgentCore Runtime SDK reporting that the
-    agent raised mid-stream. Reasoning, citations, lifecycle, and the final
-    result carry no key we render, so they map to None.
+    invocation (`name` and `toolUseId` for the indicator); a `tool_result`
+    dict closes that indicator (`toolUseId`, and `status` for whether it
+    failed); a `file` dict is a generated file (its content base64-encoded
+    for the JSON wire — the inbound file encoding in reverse); an
+    `interrupt` dict is a question the agent stopped on (id and name must be
+    strings; the reason stays whatever JSON value the agent sent, since
+    interpreting it is the rendering layer's job); an `error` string is the
+    AgentCore Runtime SDK reporting that the agent raised mid-stream. An
+    event carrying none of these keys is nothing we render, so it maps to
+    None.
 
     Args:
-        event (dict): One decoded Strands stream event.
+        event (dict): One decoded event of the agent's reply stream.
 
     Returns:
         RenderEvent | None: A text delta, a tool use, a tool result, a
@@ -142,7 +145,7 @@ def parse_stream_event(event: dict) -> RenderEvent | None:
         return _parse_interrupt(interrupt)
     error = event.get("error")
     if isinstance(error, str):
-        return StreamError(message=error)
+        return StreamError(message=error or "unknown error")
     return None
 
 
@@ -176,7 +179,12 @@ def _parse_file_output(file: dict) -> FileOutput | None:
 
     Returns:
         FileOutput | None: The named file content, or None when the name or
-            the base64 payload is missing or malformed.
+            the base64 payload is missing or malformed, and when the content
+            decodes to no bytes at all — Slack refuses an empty upload
+            (observed by hand in the Slack UI; the API documentation says
+            nothing about it), and `files_upload_v2` failing would cost the
+            whole reply, text and other files included. The warning is there
+            for the agent's author, who is the only one who can fix it.
     """
     name = file.get("name")
     data = file.get("bytes")
@@ -185,6 +193,9 @@ def _parse_file_output(file: dict) -> FileOutput | None:
     try:
         decoded = base64.b64decode(data, validate=True)
     except binascii.Error:
+        return None
+    if not decoded:
+        logger.warning(f"Skipped an empty file (name: {name})")
         return None
     return FileOutput(name=name, data=decoded)
 
@@ -271,3 +282,29 @@ def harness_final_stop_error(stop_reason: object) -> StreamError | None:
             "tool, which Welt cannot run"
         )
     return None
+
+
+def fills_in_tool_name(*, active: ToolUse, event: ToolUse) -> bool:
+    """
+    Judge whether a repeated tool event names the tool the first one did not.
+
+    Some models put the name in a later event of the same invocation, which
+    leaves the indicator on its unnamed title until the name arrives. The id
+    has to be known for that: `toolUseId` is optional, and two invocations
+    that never carried one compare equal to each other — without the check,
+    an unnamed second tool would rename the first one's indicator.
+
+    Args:
+        active (ToolUse): The tool whose indicator is on screen.
+        event (ToolUse): The tool event that just arrived.
+
+    Returns:
+        bool: True when the event is the same invocation, carries a name,
+            and the indicator has none yet.
+    """
+    return (
+        event.tool_use_id is not None
+        and event.tool_use_id == active.tool_use_id
+        and bool(event.name)
+        and not active.name
+    )

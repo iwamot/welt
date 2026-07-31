@@ -288,6 +288,12 @@ def test_file_at_the_size_limit_is_selected():
     assert [s.file_id for s in _select(replies)] == ["F1"]
 
 
+def test_empty_file_is_skipped():
+    replies = [{"user": "U1", "files": [_file("F1", "image/png", size=0)]}]
+
+    assert _select(replies) == []
+
+
 def test_oversized_file_is_skipped():
     replies = [
         {

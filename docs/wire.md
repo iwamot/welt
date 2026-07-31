@@ -79,7 +79,7 @@ The mapping is deliberately framework-neutral; turning it into the framework's o
 
 ### Malformed payloads
 
-Welt sends what this page and [`request-payload.schema.json`](../schema/request-payload.schema.json) describe. A payload that departs from them is a bug on the sending side rather than an input to interpret, so an adapter may reject one however its language reports failure — raising is what a caller expects.
+Welt sends what this page and [`request-payload.schema.json`](../schema/request-payload.schema.json) describe, and its own tests hold it to that. The schema is how Welt checks itself, not a gate an adapter is expected to run: an adapter may take what arrives as correct. A payload that departs from the contract is a bug on the sending side rather than an input to interpret, so failing on one — wherever the failure surfaces, in the adapter or in the framework below it — is the right outcome.
 
 What an adapter must not do is quietly turn it into something usable:
 
@@ -89,13 +89,11 @@ What an adapter must not do is quietly turn it into something usable:
 
 None of this asks for validation of its own: what an adapter does not inspect it may pass on unchanged, leaving the framework beneath it to refuse. The rule is only that a violation must not reach the agent as a smaller, emptier, or corrupted version of itself.
 
-This is the reverse of the [reply direction](#reply-events), where Welt ignores what it cannot render. An unrecognized event there is the framework's own business and skipping it costs nothing; every entry here is something a human said.
+This is the reverse of the [reply direction](#reply-events), where Welt ignores what it cannot render. Skipping an event it does not recognize costs nothing; every entry here is something a human said.
 
 ## Reply events
 
-Welt renders six event keys and ignores everything else, so extra framework events can stay on the stream. An event whose shape fails validation (a non-string where a string is required, malformed base64) is ignored too.
-
-[`reply-events.schema.json`](../schema/reply-events.schema.json) states the six shapes, and Welt's own tests check that what it describes is what Welt renders. It is not a rejection contract in the way the [request payload](#request-payload) is: Welt takes the keys it recognizes and lets the rest by, so an event may carry more than the schema names.
+Welt renders six event keys and ignores everything else, so an event may carry more than the keys named here. One whose shape Welt cannot read (a non-string where a string is required, malformed base64) is ignored too.
 
 | Event | Welt renders it as |
 |---|---|
@@ -106,11 +104,24 @@ Welt renders six event keys and ignores everything else, so extra framework even
 | `interrupt` | A question, as buttons and/or a text field |
 | `error` | A reply failure notice |
 
-`error` is normally emitted by the AgentCore Runtime SDK when the agent raises mid-stream — an adapter does not need to produce it.
+This direction has no machine-readable specification, unlike the [request payload](#request-payload), because Welt is the receiving side of it: what an event carries is decided by the agent frameworks and AWS. A constraint stated about someone else's output holds only until the next framework, or the next version of one, so this page describes what Welt reads and how it renders that, rather than what an agent is allowed to put on the stream.
+
+`error` is normally emitted by the AgentCore Runtime SDK when the agent raises mid-stream — an adapter does not need to produce it. An empty string renders as `unknown error`.
+
+### `current_tool_use` and `tool_result`
+
+Welt reads two fields from an invocation, and two from its result:
+
+```json
+{"current_tool_use": {"name": "get_weather", "toolUseId": "tooluse_abc"}}
+{"tool_result": {"toolUseId": "tooluse_abc", "status": "success"}}
+```
+
+`name` titles the indicator; an event without one renders as "Using a tool", and a name arriving later under the same id fills it in. `toolUseId` identifies the indicator and pairs the invocation with its result — further events under one id keep updating it rather than opening another. `status` on the result, `"success"` or `"error"`, decides whether the indicator ends complete or failed. The tool's own output has no place on this stream: it belongs to the agent's conversation with the model.
 
 ### `file`
 
-A generated file is one `file` event: `name` is the upload filename (extension included), `bytes` is the base64-encoded content — the inbound file encoding in reverse. Welt uploads each one into the Slack thread; [Files](files.md) covers the rendering, and [Limits](#limits) the size ceiling.
+A generated file is one `file` event: `name` is the upload filename (extension included), `bytes` is the base64-encoded content — the inbound file encoding in reverse. Welt uploads each one into the Slack thread; [Files](files.md) covers the rendering, and [Limits](#limits) the size ceiling. An event whose content decodes to no bytes is skipped with a warning in Welt's log, since Slack refuses an empty upload and the failure would cost the whole reply.
 
 ### `interrupt`
 
@@ -135,7 +146,9 @@ A **structured reason** renders as a message with the specified widgets. It is a
 
 A pressed button answers with its `value`, and the text submitted in the field answers with itself — whichever comes first settles the question. A button's `label` defaults to its `value`, and the field's to `"Answer"`.
 
-Matching is all-or-nothing: one malformed field, or any key the schema does not name, drops the whole reason to the fallback rendering — no partial repair. Any non-structured reason (a plain string, or any other JSON value) still renders as an answerable question with the default Approve / Deny buttons. The shape is frozen at the fields the schema carries; emoji, confirm dialogs, URLs and the like are beyond Welt's abstraction and will not be added.
+Matching is all-or-nothing: one malformed field, one key beyond `message` / `options` / `input`, or a value Slack cannot render — an empty `message`, no options at all or more than 25 of them, an option `value` empty or longer than 1800 characters, a `style` other than `primary` or `danger` — drops the whole reason to the fallback rendering, with no partial repair. Labels that overrun Slack's element caps are clipped instead, the way bodies are. Any non-structured reason (a plain string, or any other JSON value) still renders as an answerable question with the default Approve / Deny buttons.
+
+Those caps are Welt's rendering limits rather than parts of the vocabulary, so an adapter need not repeat them. The shape is frozen at the fields shown above; emoji, confirm dialogs, URLs and the like are beyond Welt's abstraction and will not be added.
 
 ## Limits
 

@@ -65,6 +65,7 @@ from app.stream_logic import (
     StreamError,
     ToolResult,
     ToolUse,
+    fills_in_tool_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -463,6 +464,9 @@ async def stream_agent_reply_to_slack(
             continue
         if isinstance(event, ToolUse):
             if active_tool is not None and event.tool_use_id == active_tool.tool_use_id:
+                if fills_in_tool_name(active=active_tool, event=event):
+                    active_tool = event
+                    await streamer.append(chunks=_tool_chunks(started=event))
                 continue
             chunks = _tool_chunks(completed=active_tool, started=event)
             active_tool = event
