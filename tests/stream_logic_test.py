@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 
 from app.stream_logic import (
     FileOutput,
@@ -9,6 +10,7 @@ from app.stream_logic import (
     TextDelta,
     ToolResult,
     ToolUse,
+    fills_in_tool_name,
     harness_final_stop_error,
     parse_harness_event,
     parse_sse_data_line,
@@ -42,29 +44,19 @@ def test_sse_line_ignores_non_object_json():
     assert parse_sse_data_line('data: ["a", "b"]') is None
 
 
-# --- parse_stream_event (real Strands stream_async event shapes) ------------
+# --- parse_stream_event (the reply events docs/wire.md specifies) ------------
 
 
 def test_text_stream_event_is_text_delta():
-    event = {"data": "Hello", "delta": {"text": "Hello"}}
-
-    assert parse_stream_event(event) == TextDelta(text="Hello")
+    assert parse_stream_event({"data": "Hello"}) == TextDelta(text="Hello")
 
 
 def test_empty_text_is_ignored():
-    assert parse_stream_event({"data": "", "delta": {"text": ""}}) is None
+    assert parse_stream_event({"data": ""}) is None
 
 
 def test_tool_use_stream_event_is_tool_use():
-    event = {
-        "type": "tool_use_stream",
-        "delta": {"toolUse": {"input": '{"city":'}},
-        "current_tool_use": {
-            "toolUseId": "tooluse_abc",
-            "name": "get_weather",
-            "input": "",
-        },
-    }
+    event = {"current_tool_use": {"toolUseId": "tooluse_abc", "name": "get_weather"}}
 
     assert parse_stream_event(event) == ToolUse(
         name="get_weather", tool_use_id="tooluse_abc"
@@ -128,6 +120,14 @@ def test_file_event_with_missing_or_malformed_bytes_is_ignored():
     )
 
 
+def test_file_event_carrying_no_bytes_is_skipped_with_a_warning(caplog):
+    with caplog.at_level(logging.WARNING):
+        result = parse_stream_event({"file": {"name": "empty.txt", "bytes": ""}})
+
+    assert result is None
+    assert "empty.txt" in caplog.text
+
+
 def test_non_dict_file_event_is_ignored():
     assert parse_stream_event({"file": "not a dict"}) is None
 
@@ -168,15 +168,16 @@ def test_non_dict_interrupt_event_is_ignored():
     assert parse_stream_event({"interrupt": "not a dict"}) is None
 
 
-def test_reasoning_event_is_ignored():
-    event = {"reasoningText": "thinking...", "delta": {}, "reasoning": True}
+def test_an_event_carrying_no_key_welt_reads_is_ignored():
+    # Events do carry keys beyond the six: the AgentCore Runtime SDK's own
+    # error event arrives with `error_type` and `message` beside the `error`
+    # string. On their own they render nothing.
+    event = {
+        "error_type": "ZeroDivisionError",
+        "message": "An error occurred during streaming",
+    }
 
     assert parse_stream_event(event) is None
-
-
-def test_lifecycle_and_result_events_are_ignored():
-    assert parse_stream_event({"init_event_loop": True}) is None
-    assert parse_stream_event({"result": {"stop_reason": "end_turn"}}) is None
 
 
 def test_error_event_maps_to_stream_error():
@@ -187,6 +188,10 @@ def test_error_event_maps_to_stream_error():
     }
 
     assert parse_stream_event(event) == StreamError(message="division by zero")
+
+
+def test_empty_error_gets_the_same_fallback_as_the_harness_dialect():
+    assert parse_stream_event({"error": ""}) == StreamError(message="unknown error")
 
 
 # --- parse_harness_event -----------------------------------------------------
@@ -307,3 +312,47 @@ def test_other_final_stops_are_normal():
     assert harness_final_stop_error("tool_result") is None
     assert harness_final_stop_error(None) is None
     assert parse_harness_event({"contentBlockStop": {"contentBlockIndex": 0}}) is None
+
+
+# --- fills_in_tool_name ------------------------------------------------------
+
+
+def test_a_later_event_naming_the_tool_fills_the_indicator_in():
+    active = ToolUse(name=None, tool_use_id="t-1")
+    event = ToolUse(name="get_weather", tool_use_id="t-1")
+
+    assert fills_in_tool_name(active=active, event=event)
+
+
+def test_an_indicator_that_already_has_a_name_keeps_it():
+    active = ToolUse(name="get_weather", tool_use_id="t-1")
+    event = ToolUse(name="current_time", tool_use_id="t-1")
+
+    assert not fills_in_tool_name(active=active, event=event)
+
+
+def test_a_repeat_carrying_no_name_leaves_the_indicator_alone():
+    active = ToolUse(name=None, tool_use_id="t-1")
+
+    assert not fills_in_tool_name(
+        active=active, event=ToolUse(name=None, tool_use_id="t-1")
+    )
+    assert not fills_in_tool_name(
+        active=active, event=ToolUse(name="", tool_use_id="t-1")
+    )
+
+
+def test_two_tools_that_never_carried_an_id_are_not_the_same_invocation():
+    # `toolUseId` is optional, so None == None would otherwise hand the
+    # second tool's name to the first one's indicator.
+    active = ToolUse(name=None, tool_use_id=None)
+    event = ToolUse(name="get_weather", tool_use_id=None)
+
+    assert not fills_in_tool_name(active=active, event=event)
+
+
+def test_another_invocation_does_not_fill_this_one_in():
+    active = ToolUse(name=None, tool_use_id="t-1")
+    event = ToolUse(name="get_weather", tool_use_id="t-2")
+
+    assert not fills_in_tool_name(active=active, event=event)

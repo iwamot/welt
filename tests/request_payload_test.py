@@ -1,9 +1,10 @@
 """Checks that what Welt sends matches the published payload schema.
 
-`schema/request-payload.schema.json` is the machine-readable half of the wire contract,
-and the agent-side adapters reject a payload that fails it. A schema that
-drifts from Welt's actual output would have every adapter reject real
-traffic, so the payload builders are checked against it here.
+`schema/request-payload.schema.json` is the machine-readable half of the wire
+contract, and Welt is the side that produces this direction: it can state
+what it sends, and hold itself to it. Nothing reads the schema at runtime, so
+these tests are what keeps the published contract and the payload builders
+from drifting apart.
 """
 
 from __future__ import annotations

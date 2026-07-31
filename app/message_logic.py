@@ -112,7 +112,7 @@ def build_tool_use_task_chunk(
     Build a task_update chunk showing a tool invocation in the reply timeline.
 
     Args:
-        tool_use_id (str | None): The Strands toolUseId, used as the task ID
+        tool_use_id (str | None): The event's toolUseId, used as the task ID
             so a later status change updates the same task.
         tool_name (str | None): The tool name, if the event carried one.
         status (str): The task status (in_progress / complete / error).

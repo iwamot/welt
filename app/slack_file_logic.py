@@ -185,9 +185,11 @@ def select_files_to_fetch(
     Only files posted by humans count (bot posts are excluded). Each modality
     (image / document / video) fills at most its Converse per-request slots,
     preferring the most recent replies so old attachments fall off first.
-    Files whose MIME type maps to no allowed modality, whose size exceeds the
-    modality's Converse limit, or with missing metadata, are skipped without
-    consuming a slot.
+    Files whose MIME type maps to no allowed modality, whose size is zero or
+    exceeds the modality's Converse limit, or with missing metadata, are
+    skipped without consuming a slot. An empty file has nothing for the model
+    to read, so it is left at this boundary rather than downloaded and
+    embedded as an empty content block.
 
     Args:
         replies (list[dict]): Slack replies in chronological order.
@@ -244,7 +246,8 @@ def _select_file(
         return None
     file_format, modality = resolved
     size = file.get("size")
-    if not isinstance(size, int) or size > max_bytes_by_modality.get(modality, 0):
+    max_bytes = max_bytes_by_modality.get(modality, 0)
+    if not isinstance(size, int) or not 0 < size <= max_bytes:
         return None
     name = file.get("name")
     return FileToFetch(
