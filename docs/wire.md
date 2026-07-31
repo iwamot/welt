@@ -162,6 +162,34 @@ Inbound, the embedded file blocks stay within the Converse limits — Welt never
 
 Outbound, a `file` event travels as one streamed chunk, and AgentCore Runtime caps a response chunk at **10 MB** — going over kills the stream. With base64's 4/3 growth, the practical ceiling is roughly **7 MB** of raw file, and there is no slicing protocol; for anything bigger, put the file somewhere else (for example S3) and reply with a link instead.
 
+## Checking an implementation by hand
+
+Nothing tests the wire end to end. Welt's tests and an adapter's tests each look at their own side, and what actually travels between them is covered by neither — so a change to either side is worth exercising by hand.
+
+Run the agent locally (its own documentation says how) and point Welt at it by leaving `AGENT_ARN` unset. One Slack thread that streams text, calls a tool, uploads a file, and stops on an interrupt reaches every event key.
+
+What the thread cannot show is what those events carried. Read the stream directly for that — the agent answers with raw SSE, without Welt in the way:
+
+```sh
+curl -N -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":[{"text":"what time is it?"}]}]}' \
+  http://localhost:8080/invocations
+```
+
+The AgentCore SDK for TypeScript answers a request without a session id with 400, and a streaming response without an explicit `Accept` with 406; the Python SDK asks for neither:
+
+```sh
+curl -N -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -H 'x-amzn-bedrock-agentcore-runtime-session-id: manual-check-0000000000000000000000' \
+  -d '{"messages":[{"role":"user","content":[{"text":"what time is it?"}]}]}' \
+  http://localhost:8080/invocations
+```
+
+The id goes in the header rather than the body, where it would show up as a payload key this contract does not have. Anything non-empty works locally; 33 characters or more keeps the same command usable against a deployment, which is where the [Runtime's minimum](#session-and-identity) applies.
+
+Read the `data:` lines for what the events carry beyond what Welt reads. Extra fields cost bytes on every event and are the one thing the Slack side cannot show you.
+
 ## Versioning
 
 Welt's release version is the contract's version. While Welt is 0.x, a minor release may change the wire; adapters mirror the minor — a 0.Y adapter release implements Welt v0.Y's wire, and other combinations come with no guarantee.
