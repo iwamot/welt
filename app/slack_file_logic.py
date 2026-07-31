@@ -247,6 +247,10 @@ def _select_file(
     file_format, modality = resolved
     size = file.get("size")
     max_bytes = max_bytes_by_modality.get(modality, 0)
+    # `size` is Slack's metadata, not the file: an upload reported as empty is
+    # left here rather than downloaded to find out. One that holds content and
+    # still reports zero would be lost the same way, and silently — as every
+    # skip in this function is.
     if not isinstance(size, int) or not 0 < size <= max_bytes:
         return None
     name = file.get("name")
