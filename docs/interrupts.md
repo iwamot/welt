@@ -70,7 +70,7 @@ Bodies — the structured `message` and the plain-string reason — render as st
 
 ## Limitations
 
-- **MCP elicitation is not supported.** Do not register an elicitation callback when your agent acts as an MCP client — there is no response path on the wire, and the tool call would hang. This can be revisited once Welt has a bidirectional streaming transport or MCP's multi-round-trip requests are settled and common.
+- **MCP elicitation is not supported.** Do not register an elicitation callback when your agent acts as an MCP client — there is no response path on the wire, and the tool call would hang.
 - Approve-with-edits and resume across sessions are out of scope for now.
 - Expiry is optimistic only (see [Behavior details](#behavior-details)); there is no guarantee of how long answers stay acceptable.
 - Rendering quality is only guaranteed for the structured reason shape; fallbacks guarantee just the visible, answerable pause.
