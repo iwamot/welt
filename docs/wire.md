@@ -192,4 +192,4 @@ Read the `data:` lines for what the events carry beyond what Welt reads. Extra f
 
 ## Versioning
 
-Welt's release version is the contract's version. While Welt is 0.x, a minor release may change the wire; adapters mirror the minor — a 0.Y adapter release implements Welt v0.Y's wire, and other combinations come with no guarantee.
+Welt's release version is the contract's version. While Welt is 0.x, a minor release may change the wire, so an adapter release is supported with the Welt release whose minor matches it. From 1.0 on, the wire stays compatible within a major version, so an adapter release is supported with any Welt release that shares its major, and the minor versions move independently on both sides. Support is best effort either way, and other combinations come with no guarantee.
