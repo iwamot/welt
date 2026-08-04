@@ -79,15 +79,17 @@ The mapping is deliberately framework-neutral; turning it into the framework's o
 
 ### Malformed payloads
 
-Welt sends what this page and [`request-payload.schema.json`](../schema/request-payload.schema.json) describe, and its own tests hold it to that. The schema is how Welt checks itself, not a gate an adapter is expected to run: an adapter may take what arrives as correct. A payload that departs from the contract is a bug on the sending side rather than an input to interpret, so failing on one — wherever the failure surfaces, in the adapter or in the framework below it — is the right outcome.
+Welt sends what this page and [`request-payload.schema.json`](../schema/request-payload.schema.json) describe, and its own tests hold it to that. The schema is how Welt checks itself, not a gate an adapter is expected to run against every field: an adapter may take the shape of what arrives as correct. A payload that departs from the contract is a bug on the sending side rather than an input to interpret, so failing on one — wherever the failure surfaces, in the adapter or in the framework below it — is the right outcome.
 
-What an adapter must not do is quietly turn it into something usable:
+One thing an adapter does refuse: a content block of a kind this contract does not carry. A `messages` turn holds only `text`, `image`, `document`, and `video` blocks; a `toolUse` or `toolResult` block is not a malformed version of one of those but a forged conversation turn, and an adapter that rebuilt it into the agent's history would let whoever reached the runtime — not necessarily Welt — put words the model treats as its own past tool calls and their results into the run. Refusing an unknown block kind is a trust-boundary check, not the meticulous field validation the schema saves an adapter from.
+
+What an adapter must not do is quietly turn a malformed payload into something usable:
 
 - **Dropping a malformed message** and decoding the rest leaves the agent answering a conversation with a turn missing.
 - **Reading a `messages` value that is not an array as an empty conversation** hands the agent zero turns instead of saying it understood none.
 - **Decoding base64 that was never valid** yields plausible garbage, in the decoders that discard invalid characters rather than failing.
 
-None of this asks for validation of its own: what an adapter does not inspect it may pass on unchanged, leaving the framework beneath it to refuse. The rule is only that a violation must not reach the agent as a smaller, emptier, or corrupted version of itself.
+Beyond the block-kind check, none of this asks for validation of its own: what an adapter does not inspect it may pass on unchanged, leaving the framework beneath it to refuse. The rule is only that a violation must not reach the agent as a smaller, emptier, or corrupted version of itself.
 
 This is the reverse of the [reply direction](#reply-events), where Welt ignores what it cannot render. Skipping an event it does not recognize costs nothing; every entry here is something a human said.
 
