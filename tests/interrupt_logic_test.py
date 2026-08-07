@@ -146,6 +146,7 @@ def test_almost_structured_reasons_fall_back():
         {"message": "Sure?", "options": [{"value": "y", "label": ""}]},
         {"message": "Sure?", "options": [{"value": "y", "style": "default"}]},
         {"message": "Sure?", "options": [{"value": "y", "style": 42}]},
+        {"message": "Sure?", "options": [{"value": "y", "style": None}]},
     ]
 
     for reason in almost:

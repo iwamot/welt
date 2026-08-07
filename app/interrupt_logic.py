@@ -205,11 +205,14 @@ def _parse_options(options: object) -> tuple[InterruptOption, ...] | None:
         label = option.get("label", value)
         if not isinstance(label, str) or not label:
             return None
-        style = option.get("style")
-        if style is not None and (
-            not isinstance(style, str) or style not in _BUTTON_STYLES
-        ):
-            return None
+        # Read by presence, not by None: an explicit null is a malformed
+        # style rather than an omitted one, as it is for label and multiline.
+        style: str | None = None
+        if "style" in option:
+            given = option.get("style")
+            if not isinstance(given, str) or given not in _BUTTON_STYLES:
+                return None
+            style = given
         parsed.append(InterruptOption(value=value, label=label, style=style))
     return tuple(parsed)
 
