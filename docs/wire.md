@@ -146,7 +146,7 @@ A **structured reason** renders as a message with the specified widgets. It is a
 }
 ```
 
-A pressed button answers with its `value`, and the text submitted in the field answers with itself — whichever comes first settles the question. A button's `label` defaults to its `value`, and the field's to `"Answer"`.
+A pressed button answers with its `value`, and the text submitted in the field answers with itself — whichever comes first settles the question. A button's `label` defaults to its `value`, and the field's to `"Answer"`. A default is taken by leaving the key out: a key carrying `null` is a malformed field, not an omitted one.
 
 Matching is all-or-nothing: one malformed field, one key beyond `message` / `options` / `input`, or a value Slack cannot render — an empty `message`, no options at all or more than 25 of them, an option `value` empty or longer than 1800 characters, a `style` other than `primary` or `danger` — drops the whole reason to the fallback rendering, with no partial repair. Labels that overrun Slack's element caps are clipped instead, the way bodies are. Any non-structured reason (a plain string, or any other JSON value) still renders as an answerable question with the default Approve / Deny buttons.
 
