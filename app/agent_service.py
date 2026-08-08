@@ -10,7 +10,10 @@ The Runtime and local paths carry two payload envelopes — `messages` for a
 conversation turn, `interrupt_responses` to resume an interrupted run.
 boto3 and http.client are synchronous, so the blocking invoke call and each
 blocking read of the response are pushed to a worker thread to keep the
-event loop free.
+event loop free. A reply is not always read to its end — an error event, or
+a failed Slack call while the reply is being rendered, ends the run there —
+so every path closes its response on the way out instead of leaving the
+connection to be reclaimed whenever the stream is finalized.
 """
 
 from __future__ import annotations
@@ -220,9 +223,13 @@ async def _stream_runtime_events(
         )
 
     response = await asyncio.to_thread(invoke)
-    lines: Iterator[bytes] = response["response"].iter_lines()
-    async for render_event in _render_events_from_sse_lines(lines):
-        yield render_event
+    stream = response["response"]
+    try:
+        lines: Iterator[bytes] = stream.iter_lines()
+        async for render_event in _render_events_from_sse_lines(lines):
+            yield render_event
+    finally:
+        stream.close()
 
 
 async def _stream_local_events(
@@ -293,15 +300,19 @@ async def _stream_harness_events(
         )
 
     response = await asyncio.to_thread(invoke)
-    events: Iterator[dict] = iter(response["stream"])
+    stream = response["stream"]
     last_stop_reason: object = None
-    async for event in _iterate_in_thread(events):
-        message_stop = event.get("messageStop")
-        if isinstance(message_stop, dict):
-            last_stop_reason = message_stop.get("stopReason")
-        render_event = parse_harness_event(event)
-        if render_event is not None:
-            yield render_event
+    try:
+        events: Iterator[dict] = iter(stream)
+        async for event in _iterate_in_thread(events):
+            message_stop = event.get("messageStop")
+            if isinstance(message_stop, dict):
+                last_stop_reason = message_stop.get("stopReason")
+            render_event = parse_harness_event(event)
+            if render_event is not None:
+                yield render_event
+    finally:
+        stream.close()
     stop_error = harness_final_stop_error(last_stop_reason)
     if stop_error is not None:
         yield stop_error
