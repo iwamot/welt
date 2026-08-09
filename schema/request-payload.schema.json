@@ -172,10 +172,21 @@
     },
     "interruptResponses": {
       "title": "Answers resuming an interrupted run",
-      "description": "The answer a human gave per interrupt id — a button's value, or the submitted text. A button carries whatever JSON value its option declared, so an answer is any JSON value; submitted text is always a string. Welt sends it only once every pending question is answered, so it is never empty.",
+      "description": "The answer a human gave per interrupt id. Welt sends it only once every pending question is answered, so it is never empty.",
       "type": "object",
       "minProperties": 1,
-      "additionalProperties": true
+      "additionalProperties": { "$ref": "#/$defs/interruptAnswer" }
+    },
+    "interruptAnswer": {
+      "title": "One answer, and the widget it came from",
+      "description": "A pressed button carries whatever JSON value its option declared, so `value` is any JSON value; a submitted text field carries the typed string. `source` names the widget, after the reason key that declares it — the default buttons are the options Welt supplies for a reason that declared none.",
+      "type": "object",
+      "required": ["value", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "value": true,
+        "source": { "enum": ["option", "input"] }
+      }
     }
   }
 }

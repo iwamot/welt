@@ -29,6 +29,11 @@ An option's value is any JSON value, and the answer it submits arrives
 back the way it was declared. Slack carries a button's value as a string,
 but that string is Welt's JSON envelope, so the declared value crosses
 unchanged rather than flattened to text.
+
+An answer also carries the widget that produced it — `option` or `input`
+— since the two are told apart here, at the listener that received the
+press, and nowhere downstream: a typed answer that reads like an option's
+value is otherwise indistinguishable from the press of that option.
 """
 
 from __future__ import annotations
@@ -382,7 +387,7 @@ def build_interrupt_blocks(interrupts: Sequence[Interrupt]) -> list[dict]:
     return blocks
 
 
-def parse_action_answer(action: object) -> tuple[str, object] | None:
+def parse_action_answer(action: object) -> tuple[str, object, str] | None:
     """
     Decode one pressed action into its interrupt id and answer.
 
@@ -394,11 +399,11 @@ def parse_action_answer(action: object) -> tuple[str, object] | None:
         action (object): The pressed action from the block_actions payload.
 
     Returns:
-        tuple[str, object] | None: The interrupt id and the answer — the
+        tuple[str, object, str] | None: The interrupt id, the answer — the
             option's declared value for a button, the typed text for a
-            field — or None when the action is not one of Welt's answering
-            widgets (or the submitted text is empty — nothing to answer
-            with).
+            field — and the widget it came from, or None when the action is
+            not one of Welt's answering widgets (or the submitted text is
+            empty — nothing to answer with).
     """
     if not isinstance(action, dict):
         return None
@@ -412,8 +417,12 @@ def parse_action_answer(action: object) -> tuple[str, object] | None:
         value = action.get("value")
         if not interrupt_id or not isinstance(value, str) or not value:
             return None
-        return interrupt_id, value
-    return parse_button_value(action.get("value"))
+        return interrupt_id, value, "input"
+    pressed = parse_button_value(action.get("value"))
+    if pressed is None:
+        return None
+    interrupt_id, choice = pressed
+    return interrupt_id, choice, "option"
 
 
 def parse_button_value(value: object) -> tuple[str, object] | None:
@@ -452,11 +461,18 @@ def parse_button_value(value: object) -> tuple[str, object] | None:
     return interrupt_id, decoded["v"]
 
 
+# The widgets an answer can come from, named after the reason keys that
+# declare them. The default buttons are the options Welt supplies for a
+# reason that declared none, so their answers are `option` answers too.
+ANSWER_SOURCES = ("option", "input")
+
+
 @dataclass(frozen=True)
 class Answer:
-    """One recorded press: the option value it chose, and who chose it."""
+    """One recorded answer: what it chose, where from, and who gave it."""
 
     value: object
+    source: str
     user: str
 
 
@@ -504,7 +520,11 @@ def build_collection_metadata(state: CollectionState) -> dict:
         "event_payload": {
             "pending": list(state.pending),
             "answers": {
-                interrupt_id: {"value": answer.value, "user": answer.user}
+                interrupt_id: {
+                    "value": answer.value,
+                    "source": answer.source,
+                    "user": answer.user,
+                }
                 for interrupt_id, answer in state.answers.items()
             },
         },
@@ -570,15 +590,25 @@ def _parsed_answers(answers: dict) -> dict[str, Answer]:
         if not isinstance(interrupt_id, str) or not isinstance(answer, dict):
             continue
         # The value is read by presence — any JSON value is an answer,
-        # null included — while the answerer must be a name.
+        # null included — while the answerer must be a name and the source
+        # one of the widgets an answer can come from.
+        source = answer.get("source")
         user = answer.get("user")
-        if "value" in answer and isinstance(user, str):
-            parsed[interrupt_id] = Answer(value=answer["value"], user=user)
+        if "value" not in answer or source not in ANSWER_SOURCES:
+            continue
+        if not isinstance(user, str):
+            continue
+        parsed[interrupt_id] = Answer(value=answer["value"], source=source, user=user)
     return parsed
 
 
 def record_answer(
-    state: CollectionState, *, interrupt_id: str, value: object, user_id: str
+    state: CollectionState,
+    *,
+    interrupt_id: str,
+    value: object,
+    source: str,
+    user_id: str,
 ) -> CollectionState | None:
     """
     Record one button press into a collection state.
@@ -592,6 +622,8 @@ def record_answer(
         interrupt_id (str): The interrupt the pressed button belongs to.
         value (object): The answer the press submitted — the option's
             declared value, or the typed text.
+        source (str): The widget the answer came from, one of
+            `ANSWER_SOURCES`.
         user_id (str): The Slack user id of the presser, for the audit
             trail in the metadata.
 
@@ -602,7 +634,7 @@ def record_answer(
     if interrupt_id not in state.pending:
         return None
     answers = dict(state.answers)
-    answers[interrupt_id] = Answer(value=value, user=user_id)
+    answers[interrupt_id] = Answer(value=value, source=source, user=user_id)
     return CollectionState(pending=state.pending, answers=answers)
 
 
@@ -623,9 +655,14 @@ def build_interrupt_responses(state: CollectionState) -> dict:
     """
     Build the resume payload's `interrupt_responses` from a full state.
 
-    A plain mapping of interrupt id to the chosen answer — Welt's own
-    vocabulary, deliberately framework-neutral; turning it into a
-    framework's resume input is the agent-side adapter's job.
+    A mapping of interrupt id to the answer and the widget that produced
+    it — Welt's own vocabulary, deliberately framework-neutral; turning it
+    into a framework's resume input is the agent-side adapter's job.
+
+    The widget travels because only the listener that received the answer
+    can tell a press from typed text, and an adapter that has to guess
+    guesses from the value: a human who types what an option declared is
+    otherwise indistinguishable from one who pressed it.
 
     Args:
         state (CollectionState): The collection state, which
@@ -633,13 +670,17 @@ def build_interrupt_responses(state: CollectionState) -> dict:
             resume only once every question has an answer.
 
     Returns:
-        dict: The answer value per interrupt id, in pending order.
+        dict: The answer per interrupt id, in pending order, each carrying
+            its `value` and its `source`.
 
     Raises:
         KeyError: If a pending interrupt has no answer yet.
     """
     return {
-        interrupt_id: state.answers[interrupt_id].value
+        interrupt_id: {
+            "value": state.answers[interrupt_id].value,
+            "source": state.answers[interrupt_id].source,
+        }
         for interrupt_id in state.pending
     }
 

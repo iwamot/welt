@@ -67,17 +67,19 @@ A document's `name` is its handle for the model, not the name of the file in Sla
 
 ### `interrupt_responses` — resuming a run
 
-The value maps each [`interrupt` event's](#interrupt) id to the answer a human gave — a button's `value`, or the submitted text:
+The value maps each [`interrupt` event's](#interrupt) id to the answer a human gave and the widget that produced it:
 
 ```json
 {
   "interrupt_responses": {
-    "<id from the interrupt event>": "<the answer>"
+    "<id from the interrupt event>": { "value": "<the answer>", "source": "option" }
   }
 }
 ```
 
-An answer is any JSON value: a button carries back whatever its option declared, so a question offering `{"value": false}` is answered with `false`, not with `"false"`. Submitted text is always a string. A question that declared no widget is answered by the default buttons, whose values are `true` and `false`.
+`value` is any JSON value: a pressed button carries back whatever its option declared, so a question offering `{"value": false}` is answered with `false`, not with `"false"`. Submitted text is always a string. A question that declared no widget is answered by the default buttons, whose values are `true` and `false`.
+
+`source` names the widget the answer came from — `"option"` for a pressed button, `"input"` for a submitted text field — after the reason key that declares it. It travels because only Welt can tell the two apart: a human who types what an option declared would otherwise be indistinguishable from one who pressed it.
 
 The mapping is deliberately framework-neutral; turning it into the framework's own resume input is the adapter's job. Welt sends it only after every pending question is answered — there is no partial resume.
 

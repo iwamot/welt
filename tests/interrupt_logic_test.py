@@ -362,7 +362,8 @@ def test_initial_state_and_metadata_wrap():
 
 def test_collection_state_round_trips_through_a_message():
     state = CollectionState(
-        pending=("i-1", "i-2"), answers={"i-1": Answer(value="y", user="U1")}
+        pending=("i-1", "i-2"),
+        answers={"i-1": Answer(value="y", source="option", user="U1")},
     )
     message = {"ts": "1.0", "metadata": build_collection_metadata(state)}
 
@@ -371,14 +372,14 @@ def test_collection_state_round_trips_through_a_message():
 
 def test_metadata_carries_only_json_types():
     state = CollectionState(
-        pending=("i-1",), answers={"i-1": Answer(value="y", user="U1")}
+        pending=("i-1",), answers={"i-1": Answer(value="y", source="option", user="U1")}
     )
 
     payload = build_collection_metadata(state)["event_payload"]
 
     assert payload == {
         "pending": ["i-1"],
-        "answers": {"i-1": {"value": "y", "user": "U1"}},
+        "answers": {"i-1": {"value": "y", "source": "option", "user": "U1"}},
     }
 
 
@@ -436,8 +437,10 @@ def test_a_mangled_answer_is_dropped_leaving_its_question_pending():
     mangled = [
         "not a dict",
         {"user": "U1"},
-        {"value": "y"},
-        {"value": "y", "user": 1},
+        {"value": "y", "source": "option"},
+        {"value": "y", "source": "option", "user": 1},
+        {"value": "y", "user": "U1"},
+        {"value": "y", "source": "button", "user": "U1"},
     ]
 
     for answer in mangled:
@@ -460,7 +463,7 @@ def test_an_answer_under_a_non_string_id_is_dropped():
             "event_type": METADATA_EVENT_TYPE,
             "event_payload": {
                 "pending": ["i-1"],
-                "answers": {1: {"value": "y", "user": "U1"}},
+                "answers": {1: {"value": "y", "source": "option", "user": "U1"}},
             },
         }
     }
@@ -473,40 +476,63 @@ def test_an_answer_under_a_non_string_id_is_dropped():
 def test_record_answer_fills_the_state():
     state = CollectionState(pending=("i-1", "i-2"), answers={})
 
-    updated = record_answer(state, interrupt_id="i-1", value="y", user_id="U1")
+    updated = record_answer(
+        state,
+        interrupt_id="i-1",
+        value="y",
+        source="option",
+        user_id="U1",
+    )
 
     assert updated == CollectionState(
-        pending=("i-1", "i-2"), answers={"i-1": Answer(value="y", user="U1")}
+        pending=("i-1", "i-2"),
+        answers={"i-1": Answer(value="y", source="option", user="U1")},
     )
     assert state.answers == {}  # the input state is not mutated
 
 
 def test_record_answer_overwrites_an_earlier_answer():
     state = CollectionState(
-        pending=("i-1",), answers={"i-1": Answer(value="y", user="U1")}
+        pending=("i-1",), answers={"i-1": Answer(value="y", source="option", user="U1")}
     )
 
-    updated = record_answer(state, interrupt_id="i-1", value="n", user_id="U2")
+    updated = record_answer(
+        state,
+        interrupt_id="i-1",
+        value="n",
+        source="option",
+        user_id="U2",
+    )
 
     assert updated is not None
-    assert updated.answers["i-1"] == Answer(value="n", user="U2")
+    assert updated.answers["i-1"] == Answer(value="n", source="option", user="U2")
 
 
 def test_record_answer_rejects_an_unknown_interrupt():
     state = CollectionState(pending=("i-1",), answers={})
 
-    assert record_answer(state, interrupt_id="i-9", value="y", user_id="U1") is None
+    assert (
+        record_answer(
+            state,
+            interrupt_id="i-9",
+            value="y",
+            source="option",
+            user_id="U1",
+        )
+        is None
+    )
 
 
 def test_is_fully_answered():
     partial = CollectionState(
-        pending=("i-1", "i-2"), answers={"i-1": Answer(value="y", user="U1")}
+        pending=("i-1", "i-2"),
+        answers={"i-1": Answer(value="y", source="option", user="U1")},
     )
     full = CollectionState(
         pending=("i-1", "i-2"),
         answers={
-            "i-1": Answer(value="y", user="U1"),
-            "i-2": Answer(value="n", user="U2"),
+            "i-1": Answer(value="y", source="option", user="U1"),
+            "i-2": Answer(value="n", source="option", user="U2"),
         },
     )
 
@@ -518,14 +544,17 @@ def test_interrupt_responses_follow_pending_order():
     state = CollectionState(
         pending=("i-1", "i-2"),
         answers={
-            "i-2": Answer(value="n", user="U2"),
-            "i-1": Answer(value="y", user="U1"),
+            "i-2": Answer(value="n", source="option", user="U2"),
+            "i-1": Answer(value="y", source="option", user="U1"),
         },
     )
 
     responses = build_interrupt_responses(state)
 
-    assert responses == {"i-1": "y", "i-2": "n"}
+    assert responses == {
+        "i-1": {"value": "y", "source": "option"},
+        "i-2": {"value": "n", "source": "option"},
+    }
     assert list(responses) == ["i-1", "i-2"]
 
 
@@ -570,7 +599,7 @@ def test_button_action_decodes_through_its_value():
         "value": json.dumps({"iid": "i-1", "v": "approve"}),
     }
 
-    assert parse_action_answer(action) == ("i-1", "approve")
+    assert parse_action_answer(action) == ("i-1", "approve", "option")
 
 
 def test_text_input_action_decodes_id_from_its_action_id():
@@ -580,7 +609,7 @@ def test_text_input_action_decodes_id_from_its_action_id():
         "value": "Tokyo",
     }
 
-    assert parse_action_answer(action) == ("i-1", "Tokyo")
+    assert parse_action_answer(action) == ("i-1", "Tokyo", "input")
 
 
 def test_malformed_actions_are_rejected():

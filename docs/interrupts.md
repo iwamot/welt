@@ -60,6 +60,8 @@ The default buttons answer with `true` (**Approve**, primary) and `false` (**Den
 
 An option declares whatever value its own agent reads, and a string is often the clearest one — `{"value": "Approve"}` labels the button and answers with the same word. The defaults are booleans because they answer on behalf of a question that declared nothing, not because booleans are the preferred way to write an option.
 
+An answer also carries the widget it came from, so a question offering both never has to guess whether a word was pressed or typed. The [wire contract](wire.md#interrupt_responses--resuming-a-run) has the shape.
+
 Bodies — the structured `message` and the plain-string reason — render as standard Markdown, the same interpretation as the streamed reply text, so an agent formats a question the way it formats everything else. A stop's bodies share Slack's 12,000-character markdown budget, split evenly and clipped with an ellipsis. Fallback renderings guarantee only that the pause is visible and answerable; if you care how it looks, use the structured shape.
 
 ## Behavior details
