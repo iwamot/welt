@@ -55,6 +55,32 @@ def test_structured_option_label_defaults_to_its_value():
     )
 
 
+def test_structured_option_value_is_any_json_value():
+    reason = {
+        "message": "Sure?",
+        "options": [
+            {"value": False, "label": "No"},
+            {"value": 42},
+            {"value": {"decision": "hold"}, "label": "Hold"},
+        ],
+    }
+
+    assert derive_interrupt_prompt(reason).options == (
+        InterruptOption(value=False, label="No", style=None),
+        InterruptOption(value=42, label="42", style=None),
+        InterruptOption(value={"decision": "hold"}, label="Hold", style=None),
+    )
+
+
+def test_structured_option_value_is_capped_by_its_json_length():
+    # `["…"]` spends four characters of the budget on top of the text.
+    fits = {"message": "Sure?", "options": [{"value": ["v" * 1796]}]}
+    over = {"message": "Sure?", "options": [{"value": ["v" * 1797]}]}
+
+    assert derive_interrupt_prompt(fits).options != DEFAULT_OPTIONS
+    assert derive_interrupt_prompt(over).options == DEFAULT_OPTIONS
+
+
 def test_structured_danger_style_is_kept():
     reason = {"message": "Sure?", "options": [{"value": "n", "style": "danger"}]}
 
@@ -84,6 +110,27 @@ def test_string_reason_gets_default_buttons():
     )
     assert prompt.options == DEFAULT_OPTIONS
     assert prompt.input is None
+
+
+def test_message_only_reason_renders_as_its_message_with_default_buttons():
+    prompt = derive_interrupt_prompt({"message": "Deleting a file. OK?"})
+
+    assert prompt == InterruptPrompt(
+        text="Deleting a file. OK?", options=DEFAULT_OPTIONS
+    )
+
+
+def test_default_buttons_answer_with_booleans():
+    assert DEFAULT_OPTIONS == (
+        InterruptOption(value=True, label="Approve", style="primary"),
+        InterruptOption(value=False, label="Deny"),
+    )
+
+
+def test_a_reason_asking_only_for_text_keeps_the_field_alone():
+    prompt = derive_interrupt_prompt({"message": "Notes?", "input": {}})
+
+    assert prompt.options == ()
 
 
 def test_string_reason_is_kept_verbatim_and_clipped():
@@ -129,7 +176,6 @@ def test_almost_structured_reasons_fall_back():
     base_option = {"value": "y", "label": "Yes"}
     almost = [
         {"message": "Sure?", "options": [base_option], "extra": True},
-        {"message": "Sure?"},
         {"options": [base_option]},
         {"message": 42, "options": [base_option]},
         {"message": "", "options": [base_option]},
@@ -139,9 +185,9 @@ def test_almost_structured_reasons_fall_back():
         {"message": "Sure?", "options": ["not a dict"]},
         {"message": "Sure?", "options": [{"value": "y", "emoji": True}]},
         {"message": "Sure?", "options": [{"label": "Yes"}]},
-        {"message": "Sure?", "options": [{"value": 42}]},
+        # An unlabelled empty string leaves the button with no label.
         {"message": "Sure?", "options": [{"value": ""}]},
-        {"message": "Sure?", "options": [{"value": "v" * 1801}]},
+        {"message": "Sure?", "options": [{"value": "v" * 1799}]},
         {"message": "Sure?", "options": [{"value": "y", "label": 42}]},
         {"message": "Sure?", "options": [{"value": "y", "label": ""}]},
         {"message": "Sure?", "options": [{"value": "y", "style": "default"}]},
@@ -154,7 +200,7 @@ def test_almost_structured_reasons_fall_back():
 
 
 def test_value_at_the_length_cap_still_matches_the_structured_shape():
-    reason = {"message": "Sure?", "options": [{"value": "v" * 1800}]}
+    reason = {"message": "Sure?", "options": [{"value": "v" * 1798}]}
 
     assert derive_interrupt_prompt(reason).options != DEFAULT_OPTIONS
 
@@ -242,7 +288,7 @@ def test_blocks_carry_one_section_and_one_actions_row_per_interrupt():
         "welt_interrupt_0_0",
         "welt_interrupt_0_1",
     ]
-    assert json.loads(first_row[0]["value"]) == {"iid": "i-1", "v": "y"}
+    assert json.loads(first_row[0]["value"]) == {"iid": "i-1", "v": True}
     assert first_row[0]["style"] == "primary"
     assert "style" not in first_row[1]
     assert blocks[1]["block_id"] == "welt_interrupt_q_0_options"
@@ -390,7 +436,6 @@ def test_a_mangled_answer_is_dropped_leaving_its_question_pending():
     mangled = [
         "not a dict",
         {"user": "U1"},
-        {"value": 1, "user": "U1"},
         {"value": "y"},
         {"value": "y", "user": 1},
     ]
@@ -503,11 +548,19 @@ def test_malformed_button_values_are_rejected():
         json.dumps({"iid": "", "v": "y"}),
         json.dumps({"iid": 1, "v": "y"}),
         json.dumps({"iid": "i-1"}),
-        json.dumps({"iid": "i-1", "v": 1}),
     ]
 
     for value in malformed:
         assert parse_button_value(value) is None, value
+
+
+def test_button_values_come_back_as_the_json_they_were_declared_as():
+    declared = [True, False, None, 42, "approve", {"decision": "hold"}]
+
+    for value in declared:
+        envelope = json.dumps({"iid": "i-1", "v": value})
+
+        assert parse_button_value(envelope) == ("i-1", value)
 
 
 def test_button_action_decodes_through_its_value():

@@ -172,10 +172,10 @@
     },
     "interruptResponses": {
       "title": "Answers resuming an interrupted run",
-      "description": "The answer a human gave per interrupt id — a button's value, or the submitted text. Welt sends it only once every pending question is answered, so it is never empty.",
+      "description": "The answer a human gave per interrupt id — a button's value, or the submitted text. A button carries whatever JSON value its option declared, so an answer is any JSON value; submitted text is always a string. Welt sends it only once every pending question is answered, so it is never empty.",
       "type": "object",
       "minProperties": 1,
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": true
     }
   }
 }
