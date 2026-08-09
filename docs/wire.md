@@ -26,6 +26,8 @@ Welt keys each Slack thread to one AgentCore session and passes the verified cal
 - **runtimeSessionId** — `slack_<team>_<channel>_<thread-ts>`, the timestamp's dot flattened to `-`, `_`-padded to the 33-character minimum. One thread (in channels and DMs alike) is one conversation, so an agent using AgentCore Memory continues the right one.
 - **runtimeUserId** — `slack:<team>:<user>`, the Slack user Welt has verified. The agent may trust it — for example as a Memory actor key — as long as only Welt's IAM role can invoke it. Local mode sends no user id; the SDK's local server has no header for it.
 
+The session id is also the correlation key across the boundary: it appears in Welt's own log lines, and AgentCore Observability keys its traces by the same value, so a Slack thread and the agent's trace join without a separate identifier.
+
 ## Request payload
 
 Every request carries exactly one of two envelope keys, and key presence is the discriminator — `"messages" in payload` / `"interrupt_responses" in payload`:

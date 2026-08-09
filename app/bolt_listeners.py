@@ -120,6 +120,14 @@ async def respond_to_new_post(
         return
 
     reply_thread_ts = determine_thread_ts_to_reply(payload)
+    # Built here rather than at the invoke below so the log lines in this
+    # handler — the failure path included — carry the same value AgentCore
+    # Observability keys its traces by.
+    session_id = build_runtime_session_id(
+        team_id=context.team_id,
+        channel_id=context.channel_id,
+        thread_ts=reply_thread_ts,
+    )
     streamer = None
     waiting = None
     try:
@@ -152,11 +160,7 @@ async def respond_to_new_post(
             agent_qualifier=env.agent_qualifier,
             messages=messages,
             agent_manages_history=env.agent_manages_history,
-            session_id=build_runtime_session_id(
-                team_id=context.team_id,
-                channel_id=context.channel_id,
-                thread_ts=reply_thread_ts,
-            ),
+            session_id=session_id,
             user_id=build_runtime_user_id(team_id=context.team_id, user_id=user_id),
         )
         streamer = RotatingChatStream(
@@ -173,13 +177,10 @@ async def respond_to_new_post(
             thread_ts=reply_thread_ts,
             streamer=streamer,
             events=events,
+            session_id=session_id,
         )
     except Exception:
-        logger.exception(
-            "Failed to reply (channel: %s, thread: %s)",
-            context.channel_id,
-            reply_thread_ts,
-        )
+        logger.exception("Failed to reply (session: %s)", session_id)
         await report_reply_failure(
             client=client,
             channel_id=context.channel_id,
@@ -369,6 +370,7 @@ async def stream_reply_with_interrupt_prompt(
     thread_ts: str,
     streamer: RotatingChatStream,
     events: AsyncIterator[RenderEvent],
+    session_id: str,
 ) -> None:
     """
     Render the reply stream, then prompt for its interrupts, if any.
@@ -376,8 +378,11 @@ async def stream_reply_with_interrupt_prompt(
     A run that stopped for human input ends its stream with interrupt
     events; after the streamed reply is finalized, they become one
     button-carrying message in the thread, its metadata holding the
-    collection state the button presses fill in. The interrupt names go to
-    the log only — the rendering is derived from each reason.
+    collection state the button presses fill in. The interrupt ids and names
+    go to the log only — the rendering is derived from each reason.
+
+    Takes the session ID already built rather than the parts to build it
+    from, so the correlation ID has one place it is assembled.
 
     Args:
         client (AsyncWebClient): The Slack Web API client.
@@ -385,6 +390,7 @@ async def stream_reply_with_interrupt_prompt(
         thread_ts (str): The thread timestamp being replied to.
         streamer (RotatingChatStream): The stream helper for this reply.
         events (AsyncIterator[RenderEvent]): Parsed agent stream events.
+        session_id (str): The AgentCore session ID for this conversation.
 
     Returns:
         None
@@ -399,9 +405,10 @@ async def stream_reply_with_interrupt_prompt(
     if not interrupts:
         return
     logger.info(
-        "Prompting for %d interrupt(s): %s",
+        "Prompting for %d interrupt(s) (interrupts: %s, session: %s)",
         len(interrupts),
-        [interrupt.name for interrupt in interrupts],
+        {interrupt.id: interrupt.name for interrupt in interrupts},
+        session_id,
     )
     await client.chat_postMessage(
         channel=channel_id,
@@ -565,27 +572,59 @@ async def respond_to_interrupt_action(
         raise ValueError("User ID could not be determined from context")
 
     message = body.get("message")
+    # No thread to key a session on, so these two carry the channel and the
+    # presser instead: the press was dropped, and the one person who knows
+    # what was clicked is the one who clicked it.
     if not isinstance(message, dict):
-        logger.warning("Ignoring a button press that carried no message")
+        logger.warning(
+            "Ignoring a button press that carried no message (channel: %s, user: %s)",
+            context.channel_id,
+            user_id,
+        )
         return
     message_ts = message.get("ts")
     thread_ts = message.get("thread_ts")
     if not isinstance(message_ts, str) or not isinstance(thread_ts, str):
-        logger.warning("Ignoring a button press without message timestamps")
+        logger.warning(
+            "Ignoring a button press without message timestamps "
+            "(channel: %s, user: %s)",
+            context.channel_id,
+            user_id,
+        )
         return
 
+    # Built here rather than at the resume invoke below so the log lines in
+    # this handler — the ignored presses and the failure path included —
+    # carry the same value AgentCore Observability keys its traces by.
+    session_id = build_runtime_session_id(
+        team_id=context.team_id,
+        channel_id=context.channel_id,
+        thread_ts=thread_ts,
+    )
     streamer = None
     waiting = None
     try:
         action_id = payload.get("action_id")
+        if not isinstance(action_id, str):
+            logger.warning(
+                "Ignoring a button press without an action id (session: %s)",
+                session_id,
+            )
+            return
         pressed = parse_action_answer(payload)
-        if not isinstance(action_id, str) or pressed is None:
-            logger.warning("Ignoring a button press with an unreadable action")
+        if pressed is None:
+            logger.warning(
+                "Ignoring a button press with an unreadable answer (session: %s)",
+                session_id,
+            )
             return
         interrupt_id, choice = pressed
         original_blocks = message.get("blocks")
         if not isinstance(original_blocks, list):
-            logger.warning("Ignoring a button press whose message has no blocks")
+            logger.warning(
+                "Ignoring a button press whose message has no blocks (session: %s)",
+                session_id,
+            )
             return
         # Marking the button message right away is the fastest visible
         # acknowledgment of the press, which softens the double-press
@@ -607,14 +646,32 @@ async def respond_to_interrupt_action(
                 )
             )
         if state is None:
-            logger.warning("Ignoring a button press without collection metadata")
+            logger.warning(
+                "Ignoring a button press without collection metadata (session: %s)",
+                session_id,
+            )
             return
         updated = record_answer(
             state, interrupt_id=interrupt_id, value=choice, user_id=user_id
         )
         if updated is None:
-            logger.warning("Ignoring a button press for an unknown interrupt")
+            logger.warning(
+                "Ignoring a button press for an unknown interrupt "
+                "(interrupt: %s, session: %s)",
+                interrupt_id,
+                session_id,
+            )
             return
+        # One line per answer, not one per resume: a single stop can carry
+        # several questions, and a line at resume time would keep only the
+        # last presser. The answer itself stays out — a free-text `input`
+        # carries whatever was typed.
+        logger.info(
+            "Interrupt answered (interrupt: %s, user: %s, session: %s)",
+            interrupt_id,
+            user_id,
+            session_id,
+        )
 
         presser_name = await fetch_display_name(client=client, user_id=user_id)
         replaced_blocks = replace_answered_blocks(
@@ -637,11 +694,7 @@ async def respond_to_interrupt_action(
             agent_arn=env.agent_arn,
             agent_qualifier=env.agent_qualifier,
             interrupt_responses=build_interrupt_responses(updated),
-            session_id=build_runtime_session_id(
-                team_id=context.team_id,
-                channel_id=context.channel_id,
-                thread_ts=thread_ts,
-            ),
+            session_id=session_id,
             user_id=build_runtime_user_id(team_id=context.team_id, user_id=user_id),
         )
         # Peek at the first event before opening a streaming reply: a resume
@@ -653,10 +706,14 @@ async def respond_to_interrupt_action(
         try:
             first = await anext(aiter(events), None)
         except Exception:
-            logger.exception("Failed to resume the agent")
+            logger.exception("Failed to resume the agent (session: %s)", session_id)
         if first is None or isinstance(first, StreamError):
             if isinstance(first, StreamError):
-                logger.error("The agent reported an error on resume: %s", first.message)
+                logger.error(
+                    "The agent reported an error on resume (error: %s, session: %s)",
+                    first.message,
+                    session_id,
+                )
             await client.chat_update(
                 channel=context.channel_id,
                 ts=message_ts,
@@ -682,13 +739,10 @@ async def respond_to_interrupt_action(
             thread_ts=thread_ts,
             streamer=streamer,
             events=_with_first(first, events),
+            session_id=session_id,
         )
     except Exception:
-        logger.exception(
-            "Failed to reply (channel: %s, thread: %s)",
-            context.channel_id,
-            thread_ts,
-        )
+        logger.exception("Failed to reply (session: %s)", session_id)
         await report_reply_failure(
             client=client,
             channel_id=context.channel_id,
