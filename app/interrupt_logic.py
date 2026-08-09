@@ -14,19 +14,33 @@ specified buttons, and `{"message": str, "input": {"label"?, "multiline"?}}`
 as its message with a free-text field (submitted with Enter, via
 dispatch_action); the two can be combined, whichever answer comes first
 settling the question. A string reason renders as that text; anything else
-is shown as pretty-printed JSON in a code block. The two fallback renderings
-get the default Approve / Deny buttons, and nothing else: a free-text field
-renders only where a structured reason asks for one, so no answer can
-arrive that the question never offered. Matching is all-or-nothing — one
-malformed field drops the whole reason to the fallback, never a partial
-repair.
+is shown as pretty-printed JSON in a code block. Matching is all-or-nothing
+— one malformed field drops the whole reason to the fallback, never a
+partial repair.
+
+A reason that declares no widget at all — a string, a bare `{"message":
+...}`, any other JSON — gets the default Approve / Deny buttons, since a
+question with no way to answer it would never be answered. The defaults
+are buttons and nothing else: a free-text field renders only where a
+structured reason asks for one, so no answer can arrive that the question
+never offered.
+
+An option's value is any JSON value, and the answer it submits arrives
+back the way it was declared. Slack carries a button's value as a string,
+but that string is Welt's JSON envelope, so the declared value crosses
+unchanged rather than flattened to text.
+
+An answer also carries the widget that produced it — `option` or `input`
+— since the two are told apart here, at the listener that received the
+press, and nowhere downstream: a typed answer that reads like an option's
+value is otherwise indistinguishable from the press of that option.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.bolt_logic import INTERRUPT_ACTION_PREFIX
 from app.stream_logic import Interrupt
@@ -46,7 +60,9 @@ _BUTTON_LABEL_MAX = 75
 _MAX_OPTIONS = 25
 
 # A button value must fit Slack's 2000-character cap together with the JSON
-# envelope that carries the interrupt id alongside the option value.
+# envelope that carries the interrupt id alongside the option value. The
+# budget is spent by the option value's JSON, not by its characters: what
+# Slack carries is the serialized form.
 _OPTION_VALUE_MAX = 1800
 
 _ALLOWED_REASON_KEYS = frozenset({"message", "options", "input"})
@@ -67,7 +83,7 @@ _INPUT_ACTION_ID_PREFIX = INTERRUPT_ACTION_PREFIX + "input_"
 class InterruptOption:
     """One button: the response value it submits, its label, its style."""
 
-    value: str
+    value: object
     label: str
     style: str | None = None
 
@@ -89,15 +105,20 @@ class InterruptPrompt:
     input: InterruptInput | None = None
 
 
-# The fallback buttons: Approve / Deny, whose y / n values satisfy
-# the default evaluator of Strands' HumanInTheLoop intervention without any
-# configuration. Deliberately no free-text field: an unrequested field
-# would accept answers the asking side never offered (a typed `t` silently
-# trusts a tool under HumanInTheLoop, for one) — a question that wants free
-# text asks for it with the structured reason's `input`.
+# The default buttons: Approve / Deny for a question that declared no
+# widget of its own. Their values are booleans because the code reading
+# them is code the agent's author did not write and cannot configure — a
+# question reaches these buttons precisely because nothing declared what
+# to send back. Booleans are what such code expects: Strands' steering
+# annotates the response `bool` and tests it for truthiness (where every
+# non-empty string, `"n"` included, reads as approval), and the default
+# evaluator of its HumanInTheLoop intervention accepts True by identity.
+# Deliberately no free-text field: an unrequested field would accept
+# answers the asking side never offered — a question that wants free text
+# asks for it with the structured reason's `input`.
 DEFAULT_OPTIONS = (
-    InterruptOption(value="y", label="Approve", style="primary"),
-    InterruptOption(value="n", label="Deny"),
+    InterruptOption(value=True, label="Approve", style="primary"),
+    InterruptOption(value=False, label="Deny"),
 )
 
 
@@ -108,10 +129,15 @@ def derive_interrupt_prompt(
     Derive an interrupt's body text and buttons from its reason.
 
     Only the shape of the reason decides the rendering (Welt cannot know
-    what produced it): the structured shape renders as its message with the
-    specified widgets, a non-empty string as that text with the default
-    Approve / Deny buttons, and everything
-    else as pretty-printed JSON in a code block with the same defaults.
+    what produced it): the structured shape renders as its message, a
+    non-empty string as that text, and everything else as pretty-printed
+    JSON in a code block.
+
+    The widgets follow from what the reason declared, and a reason that
+    declared none gets the default buttons — the one rule covering a
+    string, a bare `{"message": ...}`, and any other JSON alike. A reason
+    asking only for a free-text field has declared one, and keeps it
+    alone.
 
     Args:
         reason (object): The interrupt's reason, any JSON value.
@@ -120,20 +146,17 @@ def derive_interrupt_prompt(
 
     Returns:
         InterruptPrompt: The markdown body (clipped to the budget) and the
-            buttons to render.
+            widgets to render.
     """
-    structured = _parse_structured_reason(reason, text_limit)
-    if structured is not None:
-        return structured
-    if isinstance(reason, str) and reason:
-        return InterruptPrompt(
-            text=_clip(reason, text_limit),
-            options=DEFAULT_OPTIONS,
-        )
-    return InterruptPrompt(
-        text=_fenced_json(reason, text_limit),
-        options=DEFAULT_OPTIONS,
-    )
+    prompt = _parse_structured_reason(reason, text_limit)
+    if prompt is None:
+        if isinstance(reason, str) and reason:
+            prompt = InterruptPrompt(text=_clip(reason, text_limit))
+        else:
+            prompt = InterruptPrompt(text=_fenced_json(reason, text_limit))
+    if not prompt.options and prompt.input is None:
+        return replace(prompt, options=DEFAULT_OPTIONS)
+    return prompt
 
 
 def _parse_structured_reason(reason: object, text_limit: int) -> InterruptPrompt | None:
@@ -141,8 +164,10 @@ def _parse_structured_reason(reason: object, text_limit: int) -> InterruptPrompt
     Parse a reason against the structured shape, all-or-nothing.
 
     A structured reason carries `message` plus `options` (choice buttons),
-    `input` (a free-text field), or both — buttons with a free-text
-    alternative, whichever answer comes first settling the question.
+    `input` (a free-text field), both — buttons with a free-text
+    alternative, whichever answer comes first settling the question — or
+    neither, which is a message the caller wants rendered as itself and
+    leaves the answering to the default buttons.
 
     Args:
         reason (object): The interrupt's reason, any JSON value.
@@ -150,14 +175,14 @@ def _parse_structured_reason(reason: object, text_limit: int) -> InterruptPrompt
 
     Returns:
         InterruptPrompt | None: The prompt, or None when anything about the
-            shape is off — unknown keys, a missing or empty message or
-            value, an option value too long for a Slack button, an unknown
-            style, or more options than one actions block can hold.
+            shape is off — unknown keys, a missing or empty message, a
+            missing value, an option value too long for a Slack button, an
+            unknown style, or more options than one actions block can hold.
     """
     if not isinstance(reason, dict):
         return None
     keys = set(reason)
-    if "message" not in keys or keys == {"message"}:
+    if "message" not in keys:
         return None
     if not keys <= _ALLOWED_REASON_KEYS:
         return None
@@ -199,10 +224,17 @@ def _parse_options(options: object) -> tuple[InterruptOption, ...] | None:
     for option in options:
         if not isinstance(option, dict) or not set(option) <= _ALLOWED_OPTION_KEYS:
             return None
-        value = option.get("value")
-        if not isinstance(value, str) or not 0 < len(value) <= _OPTION_VALUE_MAX:
+        # Read by presence: an explicit null is a value the option declared,
+        # an absent key is an option with nothing to submit.
+        if "value" not in option:
             return None
-        label = option.get("label", value)
+        value = option["value"]
+        rendered = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        if len(rendered) > _OPTION_VALUE_MAX:
+            return None
+        # An option without a label is labelled by its value: as itself
+        # when it is text, as the JSON it is otherwise.
+        label = option.get("label", value if isinstance(value, str) else rendered)
         if not isinstance(label, str) or not label:
             return None
         # Read by presence, not by None: an explicit null is a malformed
@@ -355,7 +387,7 @@ def build_interrupt_blocks(interrupts: Sequence[Interrupt]) -> list[dict]:
     return blocks
 
 
-def parse_action_answer(action: object) -> tuple[str, str] | None:
+def parse_action_answer(action: object) -> tuple[str, object, str] | None:
     """
     Decode one pressed action into its interrupt id and answer.
 
@@ -367,9 +399,11 @@ def parse_action_answer(action: object) -> tuple[str, str] | None:
         action (object): The pressed action from the block_actions payload.
 
     Returns:
-        tuple[str, str] | None: The interrupt id and the answer, or None
-            when the action is not one of Welt's answering widgets (or the
-            submitted text is empty — nothing to answer with).
+        tuple[str, object, str] | None: The interrupt id, the answer — the
+            option's declared value for a button, the typed text for a
+            field — and the widget it came from, or None when the action is
+            not one of Welt's answering widgets (or the submitted text is
+            empty — nothing to answer with).
     """
     if not isinstance(action, dict):
         return None
@@ -383,20 +417,29 @@ def parse_action_answer(action: object) -> tuple[str, str] | None:
         value = action.get("value")
         if not interrupt_id or not isinstance(value, str) or not value:
             return None
-        return interrupt_id, value
-    return parse_button_value(action.get("value"))
+        return interrupt_id, value, "input"
+    pressed = parse_button_value(action.get("value"))
+    if pressed is None:
+        return None
+    interrupt_id, choice = pressed
+    return interrupt_id, choice, "option"
 
 
-def parse_button_value(value: object) -> tuple[str, str] | None:
+def parse_button_value(value: object) -> tuple[str, object] | None:
     """
     Decode a pressed button's value into its interrupt id and option value.
+
+    Slack carries the envelope as a string, but the option value inside it
+    is read back as the JSON value the option declared — a boolean stays a
+    boolean, which is what makes the default buttons answerable by code
+    that tests the answer rather than compares it.
 
     Args:
         value (object): The `value` of the pressed action, as built by
             `build_interrupt_blocks`.
 
     Returns:
-        tuple[str, str] | None: The interrupt id and the selected option
+        tuple[str, object] | None: The interrupt id and the selected option
             value, or None when the value is not Welt's envelope (a button
             from some other message, or a mangled payload).
     """
@@ -409,19 +452,27 @@ def parse_button_value(value: object) -> tuple[str, str] | None:
     if not isinstance(decoded, dict):
         return None
     interrupt_id = decoded.get("iid")
-    choice = decoded.get("v")
     if not isinstance(interrupt_id, str) or not interrupt_id:
         return None
-    if not isinstance(choice, str):
+    # Read by presence: the envelope always carries `v`, and the value it
+    # carries may legitimately be null.
+    if "v" not in decoded:
         return None
-    return interrupt_id, choice
+    return interrupt_id, decoded["v"]
+
+
+# The widgets an answer can come from, named after the reason keys that
+# declare them. The default buttons are the options Welt supplies for a
+# reason that declared none, so their answers are `option` answers too.
+ANSWER_SOURCES = ("option", "input")
 
 
 @dataclass(frozen=True)
 class Answer:
-    """One recorded press: the option value it chose, and who chose it."""
+    """One recorded answer: what it chose, where from, and who gave it."""
 
-    value: str
+    value: object
+    source: str
     user: str
 
 
@@ -469,7 +520,11 @@ def build_collection_metadata(state: CollectionState) -> dict:
         "event_payload": {
             "pending": list(state.pending),
             "answers": {
-                interrupt_id: {"value": answer.value, "user": answer.user}
+                interrupt_id: {
+                    "value": answer.value,
+                    "source": answer.source,
+                    "user": answer.user,
+                }
                 for interrupt_id, answer in state.answers.items()
             },
         },
@@ -534,15 +589,26 @@ def _parsed_answers(answers: dict) -> dict[str, Answer]:
     for interrupt_id, answer in answers.items():
         if not isinstance(interrupt_id, str) or not isinstance(answer, dict):
             continue
-        value = answer.get("value")
+        # The value is read by presence — any JSON value is an answer,
+        # null included — while the answerer must be a name and the source
+        # one of the widgets an answer can come from.
+        source = answer.get("source")
         user = answer.get("user")
-        if isinstance(value, str) and isinstance(user, str):
-            parsed[interrupt_id] = Answer(value=value, user=user)
+        if "value" not in answer or source not in ANSWER_SOURCES:
+            continue
+        if not isinstance(user, str):
+            continue
+        parsed[interrupt_id] = Answer(value=answer["value"], source=source, user=user)
     return parsed
 
 
 def record_answer(
-    state: CollectionState, *, interrupt_id: str, value: str, user_id: str
+    state: CollectionState,
+    *,
+    interrupt_id: str,
+    value: object,
+    source: str,
+    user_id: str,
 ) -> CollectionState | None:
     """
     Record one button press into a collection state.
@@ -554,7 +620,10 @@ def record_answer(
     Args:
         state (CollectionState): The current collection state.
         interrupt_id (str): The interrupt the pressed button belongs to.
-        value (str): The option value the press selected.
+        value (object): The answer the press submitted — the option's
+            declared value, or the typed text.
+        source (str): The widget the answer came from, one of
+            `ANSWER_SOURCES`.
         user_id (str): The Slack user id of the presser, for the audit
             trail in the metadata.
 
@@ -565,7 +634,7 @@ def record_answer(
     if interrupt_id not in state.pending:
         return None
     answers = dict(state.answers)
-    answers[interrupt_id] = Answer(value=value, user=user_id)
+    answers[interrupt_id] = Answer(value=value, source=source, user=user_id)
     return CollectionState(pending=state.pending, answers=answers)
 
 
@@ -586,9 +655,14 @@ def build_interrupt_responses(state: CollectionState) -> dict:
     """
     Build the resume payload's `interrupt_responses` from a full state.
 
-    A plain mapping of interrupt id to the chosen answer — Welt's own
-    vocabulary, deliberately framework-neutral; turning it into a
-    framework's resume input is the agent-side adapter's job.
+    A mapping of interrupt id to the answer and the widget that produced
+    it — Welt's own vocabulary, deliberately framework-neutral; turning it
+    into a framework's resume input is the agent-side adapter's job.
+
+    The widget travels because only the listener that received the answer
+    can tell a press from typed text, and an adapter that has to guess
+    guesses from the value: a human who types what an option declared is
+    otherwise indistinguishable from one who pressed it.
 
     Args:
         state (CollectionState): The collection state, which
@@ -596,13 +670,17 @@ def build_interrupt_responses(state: CollectionState) -> dict:
             resume only once every question has an answer.
 
     Returns:
-        dict: The answer value per interrupt id, in pending order.
+        dict: The answer per interrupt id, in pending order, each carrying
+            its `value` and its `source`.
 
     Raises:
         KeyError: If a pending interrupt has no answer yet.
     """
     return {
-        interrupt_id: state.answers[interrupt_id].value
+        interrupt_id: {
+            "value": state.answers[interrupt_id].value,
+            "source": state.answers[interrupt_id].source,
+        }
         for interrupt_id in state.pending
     }
 
@@ -637,7 +715,7 @@ def _widget_group(block_id: object) -> str | None:
 
 
 def replace_answered_blocks(
-    blocks: object, *, action_id: str, presser_name: str, answer: str
+    blocks: object, *, action_id: str, presser_name: str, answer: object
 ) -> list | None:
     """
     Rewrite a button message's blocks after a question is answered.
@@ -655,7 +733,7 @@ def replace_answered_blocks(
         blocks (object): The message's current blocks.
         action_id (str): The action_id of the answered widget.
         presser_name (str): The answerer's display name.
-        answer (str): The decoded answer, echoed for a text field.
+        answer (object): The decoded answer, echoed for a text field.
 
     Returns:
         list | None: The new blocks, or None when no block carries the
@@ -730,14 +808,20 @@ def append_context_notice(blocks: Sequence, text: str) -> list:
     ]
 
 
-def _receipt_label(block: object, action_id: str, answer: str) -> str | None:
+def _receipt_label(block: object, action_id: str, answer: object) -> str | None:
     """
     Derive the receipt text if this block holds the answered widget.
+
+    A button is receipted by its own label, so what it submitted never has
+    to be rendered. A text field is receipted by the text that was typed,
+    which is text already — the JSON rendering is the receipt's way of
+    saying it can show any answer, not a claim that a field could submit
+    something else.
 
     Args:
         block (object): One block of the message.
         action_id (str): The action_id of the answered widget.
-        answer (str): The decoded answer.
+        answer (object): The decoded answer.
 
     Returns:
         str | None: The pressed button's label, the submitted text for a
@@ -748,7 +832,9 @@ def _receipt_label(block: object, action_id: str, answer: str) -> str | None:
     if block.get("type") == "input":
         element = block.get("element")
         if isinstance(element, dict) and element.get("action_id") == action_id:
-            return answer
+            if isinstance(answer, str):
+                return answer
+            return json.dumps(answer, ensure_ascii=False)
         return None
     if block.get("type") != "actions":
         return None

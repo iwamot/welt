@@ -163,10 +163,13 @@ def test_the_trimmed_thread_an_agent_managing_history_gets_matches_the_schema():
 
 def test_a_resume_payload_matches_the_schema():
     state = CollectionState(
-        pending=("i-1", "i-2"),
+        pending=("i-1", "i-2", "i-3"),
         answers={
-            "i-1": Answer(value="approve", user="U1"),
-            "i-2": Answer(value="ship it", user="U2"),
+            "i-1": Answer(value="approve", source="option", user="U1"),
+            "i-2": Answer(value="ship it", source="input", user="U2"),
+            # A default button answers with a boolean, and the schema
+            # describes an answer as whatever JSON its option declared.
+            "i-3": Answer(value=False, source="option", user="U3"),
         },
     )
 
@@ -211,7 +214,17 @@ def test_a_resume_payload_matches_the_schema():
             ]
         },
         {"interrupt_responses": {}},
-        {"interrupt_responses": {"i-1": True}},
+        # An answer states both what it was and where it came from, and
+        # names a widget the reason contract has.
+        {"interrupt_responses": {"i-1": "y"}},
+        {"interrupt_responses": {"i-1": {"value": True}}},
+        {"interrupt_responses": {"i-1": {"source": "option"}}},
+        {"interrupt_responses": {"i-1": {"value": True, "source": "button"}}},
+        {
+            "interrupt_responses": {
+                "i-1": {"value": True, "source": "option", "user": "U1"}
+            }
+        },
     ],
 )
 def test_the_schema_rejects_what_the_contract_does_not_describe(payload: dict):

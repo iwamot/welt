@@ -67,15 +67,19 @@ A document's `name` is its handle for the model, not the name of the file in Sla
 
 ### `interrupt_responses` — resuming a run
 
-The value maps each [`interrupt` event's](#interrupt) id to the answer a human gave — a button's `value`, or the submitted text:
+The value maps each [`interrupt` event's](#interrupt) id to the answer a human gave and the widget that produced it:
 
 ```json
 {
   "interrupt_responses": {
-    "<id from the interrupt event>": "<the answer>"
+    "<id from the interrupt event>": { "value": "<the answer>", "source": "option" }
   }
 }
 ```
+
+`value` is any JSON value: a pressed button carries back whatever its option declared, so a question offering `{"value": false}` is answered with `false`, not with `"false"`. Submitted text is always a string. A question that declared no widget is answered by the default buttons, whose values are `true` and `false`.
+
+`source` names the widget the answer came from — `"option"` for a pressed button, `"input"` for a submitted text field — after the reason key that declares it. It travels because only Welt can tell the two apart: a human who types what an option declared would otherwise be indistinguishable from one who pressed it.
 
 The mapping is deliberately framework-neutral; turning it into the framework's own resume input is the adapter's job. Welt sends it only after every pending question is answered — there is no partial resume.
 
@@ -135,7 +139,7 @@ A run that pauses for human input ends its stream with one `interrupt` event per
 - `name` — goes to Welt's log only.
 - `reason` — any JSON value; its shape alone decides the Slack rendering (see [Interrupts](interrupts.md) for how each shape looks).
 
-A **structured reason** renders as a message with the specified widgets. It is a JSON object with `message` plus `options`, `input`, or both:
+A **structured reason** renders as a message with the specified widgets. It is a JSON object with `message` plus `options`, `input`, both, or neither:
 
 ```json
 {
@@ -148,9 +152,11 @@ A **structured reason** renders as a message with the specified widgets. It is a
 }
 ```
 
-A pressed button answers with its `value`, and the text submitted in the field answers with itself — whichever comes first settles the question. A button's `label` defaults to its `value`, and the field's to `"Answer"`. A default is taken by leaving the key out: a key carrying `null` is a malformed field, not an omitted one.
+A pressed button answers with its `value` — any JSON value, and the answer arrives as the value it was declared as. The text submitted in the field answers with itself; whichever comes first settles the question. A button's `label` defaults to its `value` (rendered as JSON where the value is not text), and the field's to `"Answer"`. A default is taken by leaving the key out: a key carrying `null` is an omitted `label` or `style` only when the key is absent, since `null` is itself a value an option may declare.
 
-Matching is all-or-nothing: one malformed field, one key beyond `message` / `options` / `input`, or a value Slack cannot render — an empty `message`, no options at all or more than 25 of them, an option `value` empty or longer than 1800 characters, a `style` other than `primary` or `danger` — drops the whole reason to the fallback rendering, with no partial repair. Labels that overrun Slack's element caps are clipped instead, the way bodies are. Any non-structured reason (a plain string, or any other JSON value) still renders as an answerable question with the default Approve / Deny buttons.
+A reason carrying `message` alone declares no widget, and is answered by the default Approve / Deny buttons — the same buttons any reason without a widget gets, a plain string and any other JSON value included. A reason asking only for `input` has declared a widget and keeps its field alone.
+
+Matching is all-or-nothing: one malformed field, one key beyond `message` / `options` / `input`, or a value Slack cannot render — an empty `message`, an `options` key with no options at all or more than 25 of them, an option `value` whose JSON runs past 1800 characters, a `style` other than `primary` or `danger` — drops the whole reason to the fallback rendering, with no partial repair. Labels that overrun Slack's element caps are clipped instead, the way bodies are.
 
 Those caps are Welt's rendering limits rather than parts of the vocabulary, so an adapter need not repeat them. The shape is frozen at the fields shown above; emoji, confirm dialogs, URLs and the like are beyond Welt's abstraction and will not be added.
 

@@ -618,7 +618,7 @@ async def respond_to_interrupt_action(
                 session_id,
             )
             return
-        interrupt_id, choice = pressed
+        interrupt_id, choice, source = pressed
         original_blocks = message.get("blocks")
         if not isinstance(original_blocks, list):
             logger.warning(
@@ -652,7 +652,11 @@ async def respond_to_interrupt_action(
             )
             return
         updated = record_answer(
-            state, interrupt_id=interrupt_id, value=choice, user_id=user_id
+            state,
+            interrupt_id=interrupt_id,
+            value=choice,
+            source=source,
+            user_id=user_id,
         )
         if updated is None:
             logger.warning(
