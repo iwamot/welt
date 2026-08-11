@@ -1,9 +1,9 @@
 """Pure logic for building the Converse-shaped request payload.
 
 Welt sends Bedrock Converse-shaped messages (JSON-safe) to the agent, which
-feeds them to Strands. Image / document / video blocks carry base64 in the
-`bytes` slot (JSON cannot carry raw bytes), so the agent decodes them back to
-bytes before handing the messages to Strands.
+feeds them to its framework. Image / document / video blocks carry base64 in
+the `bytes` slot (JSON cannot carry raw bytes), so the agent decodes them
+back to bytes before handing the messages on.
 
 When the agent keeps the conversation history itself — always the case for
 a managed harness (stored under the runtimeSessionId), opt-in for a Runtime
