@@ -2,7 +2,7 @@
 
 Three invoke paths share one render-event surface, picked by the configured
 ARN: an AgentCore Runtime agent goes through `invoke_agent_runtime` (JSON
-payload in, SSE of Strands events out), a managed harness through
+payload in, SSE of wire events out), a managed harness through
 `invoke_harness` (typed Converse-shaped messages in, a typed event stream
 out), and no ARN at all — local mode, for development — through plain HTTP
 to the same `/invocations` + SSE surface the AgentCore SDK serves locally.
