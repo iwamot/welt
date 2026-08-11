@@ -45,7 +45,11 @@ _client = None
 # agent and AgentCore Runtime's own limits. Hang detection is the connection
 # layer's job: the read timeout bounds the silence between stream chunks, so
 # a stalled connection dies while a healthy long-running stream keeps going.
-_CLIENT_CONFIG = Config(read_timeout=60)
+# The standard retry mode retries what the service model marks retryable —
+# notably the 409 RetryableConflictException a session mid-provision or
+# mid-teardown answers with — where the default legacy mode only retries
+# throttling codes and 5xx.
+_CLIENT_CONFIG = Config(read_timeout=60, retries={"mode": "standard"})
 
 # Where local mode finds the agent: the AgentCore SDK's local server, which
 # serves the same /invocations + SSE surface as the Runtime, on its default
