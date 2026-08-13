@@ -29,7 +29,7 @@ dependencies = [
 dev = [
     # botocore's login credential provider (`aws login` sessions) needs the
     # CRT; deployed runtimes authenticate with an IAM role instead.
-    "awscrt==0.36.1",
+    "awscrt==0.36.2",
     # Checks the payloads Welt builds against schema/request-payload.schema.json,
     # so the published contract cannot drift from what Welt sends.
     "jsonschema==4.26.0",
