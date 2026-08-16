@@ -237,6 +237,111 @@ def test_mixed_reason_carries_both_buttons_and_field():
     assert prompt.input == InterruptInput(label="City", multiline=False)
 
 
+def test_approve_and_reject_take_welts_own_wording_and_values():
+    reason = {"message": "Deploy?", "approve": {}, "reject": {}}
+
+    prompt = derive_interrupt_prompt(reason)
+
+    assert prompt.options == DEFAULT_OPTIONS
+    assert prompt.input is None
+
+
+def test_approve_and_reject_are_worded_by_the_reason_when_it_says_so():
+    reason = {
+        "message": "Deploy?",
+        "approve": {"label": "Deploy", "style": "danger"},
+        "reject": {"label": "Cancel"},
+    }
+
+    prompt = derive_interrupt_prompt(reason)
+
+    assert prompt.options == (
+        InterruptOption(value=True, label="Deploy", style="danger"),
+        InterruptOption(value=False, label="Cancel", style="danger"),
+    )
+
+
+def test_a_reason_keeps_only_the_decision_it_named():
+    prompt = derive_interrupt_prompt({"message": "Ready?", "approve": {}})
+
+    assert prompt.options == (
+        InterruptOption(value=True, label="Approve", style="primary"),
+    )
+
+
+def test_decisions_render_ahead_of_the_reasons_own_buttons():
+    reason = {
+        "message": "Deploy?",
+        "reject": {},
+        "options": [{"value": "later", "label": "Ask me later"}],
+        "approve": {},
+    }
+
+    prompt = derive_interrupt_prompt(reason)
+
+    assert [option.label for option in prompt.options] == [
+        "Approve",
+        "Reject",
+        "Ask me later",
+    ]
+
+
+def test_decisions_combine_with_a_field():
+    reason = {"message": "Deploy?", "approve": {}, "input": {"label": "Or say why"}}
+
+    prompt = derive_interrupt_prompt(reason)
+
+    assert prompt.options == (
+        InterruptOption(value=True, label="Approve", style="primary"),
+    )
+    assert prompt.input == InterruptInput(label="Or say why")
+
+
+def test_an_option_answering_as_a_named_decision_falls_back():
+    colliding = [
+        {"message": "Deploy?", "approve": {}, "options": [{"value": True}]},
+        {"message": "Deploy?", "reject": {}, "options": [{"value": False}]},
+    ]
+
+    for reason in colliding:
+        assert derive_interrupt_prompt(reason).options == DEFAULT_OPTIONS, reason
+
+
+def test_a_number_beside_a_named_decision_is_not_a_collision():
+    reason = {"message": "How many?", "approve": {}, "options": [{"value": 1}]}
+
+    prompt = derive_interrupt_prompt(reason)
+
+    assert [option.value for option in prompt.options] == [True, 1]
+
+
+def test_named_decisions_count_against_the_button_cap():
+    base_option = {"value": "y", "label": "Yes"}
+    reason = {
+        "message": "Sure?",
+        "approve": {},
+        "reject": {},
+        "options": [base_option] * 24,
+    }
+
+    assert derive_interrupt_prompt(reason).options == DEFAULT_OPTIONS
+
+
+def test_almost_decision_reasons_fall_back():
+    almost = [
+        {"message": "Deploy?", "approve": "yes"},
+        {"message": "Deploy?", "approve": {"value": True}},
+        {"message": "Deploy?", "approve": {"label": ""}},
+        {"message": "Deploy?", "approve": {"label": 42}},
+        {"message": "Deploy?", "approve": {"style": "default"}},
+        {"message": "Deploy?", "approve": {"style": 42}},
+        {"message": "Deploy?", "reject": {"style": None}},
+    ]
+
+    for reason in almost:
+        assert derive_interrupt_prompt(reason).options == DEFAULT_OPTIONS, reason
+
+
 def test_almost_input_reasons_fall_back():
     almost = [
         {"message": "Q?", "input": "not a dict"},
