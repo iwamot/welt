@@ -93,6 +93,7 @@ The wire between Welt and the agent is plain JSON, and the [Wire Contract](docs/
 | [welt-io-openai-agents](https://github.com/iwamot/welt-io-openai-agents) | Python | OpenAI Agents SDK | [welt-io-openai-agents](https://pypi.org/project/welt-io-openai-agents/) |
 | [welt-io-strands-ts](https://github.com/iwamot/welt-io-strands-ts) | TypeScript | Strands Agents | [@welt-io/strands](https://www.npmjs.com/package/@welt-io/strands) |
 | [welt-io-mastra](https://github.com/iwamot/welt-io-mastra) | TypeScript | Mastra | [@welt-io/mastra](https://www.npmjs.com/package/@welt-io/mastra) |
+| [welt-io-openai-agents-ts](https://github.com/iwamot/welt-io-openai-agents-ts) | TypeScript | OpenAI Agents SDK | [@welt-io/openai-agents](https://www.npmjs.com/package/@welt-io/openai-agents) |
 
 Other stacks can implement the contract directly.
 
