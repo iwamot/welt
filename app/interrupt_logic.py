@@ -19,7 +19,7 @@ is shown as pretty-printed JSON in a code block. Matching is all-or-nothing
 partial repair.
 
 A reason that declares no widget at all — a string, a bare `{"message":
-...}`, any other JSON — gets the default Approve / Deny buttons, since a
+...}`, any other JSON — gets the default Approve / Reject buttons, since a
 question with no way to answer it would never be answered. The defaults
 are buttons and nothing else: a free-text field renders only where a
 structured reason asks for one, so no answer can arrive that the question
@@ -105,7 +105,7 @@ class InterruptPrompt:
     input: InterruptInput | None = None
 
 
-# The default buttons: Approve / Deny for a question that declared no
+# The default buttons: Approve / Reject for a question that declared no
 # widget of its own. Their values are booleans because the code reading
 # them is code the agent's author did not write and cannot configure — a
 # question reaches these buttons precisely because nothing declared what
@@ -118,7 +118,7 @@ class InterruptPrompt:
 # asks for it with the structured reason's `input`.
 DEFAULT_OPTIONS = (
     InterruptOption(value=True, label="Approve", style="primary"),
-    InterruptOption(value=False, label="Deny"),
+    InterruptOption(value=False, label="Reject", style="danger"),
 )
 
 
