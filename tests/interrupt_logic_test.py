@@ -123,7 +123,7 @@ def test_message_only_reason_renders_as_its_message_with_default_buttons():
 def test_default_buttons_answer_with_booleans():
     assert DEFAULT_OPTIONS == (
         InterruptOption(value=True, label="Approve", style="primary"),
-        InterruptOption(value=False, label="Deny"),
+        InterruptOption(value=False, label="Reject", style="danger"),
     )
 
 
@@ -273,7 +273,7 @@ def test_blocks_carry_one_section_and_one_actions_row_per_interrupt():
     blocks = build_interrupt_blocks(interrupts)
 
     # The first question is a fallback rendering, so it gets the default
-    # widgets: the Approve / Deny buttons, and no free-text field.
+    # widgets: the Approve / Reject buttons, and no free-text field.
     assert [block["type"] for block in blocks] == [
         "markdown",
         "actions",
@@ -290,7 +290,7 @@ def test_blocks_carry_one_section_and_one_actions_row_per_interrupt():
     ]
     assert json.loads(first_row[0]["value"]) == {"iid": "i-1", "v": True}
     assert first_row[0]["style"] == "primary"
-    assert "style" not in first_row[1]
+    assert first_row[1]["style"] == "danger"
     assert blocks[1]["block_id"] == "welt_interrupt_q_0_options"
 
     second_row = blocks[3]["elements"]
