@@ -8,15 +8,17 @@ answered) kept in the message's own metadata so Welt stays stateless. A
 button press records an answer into that state; once every pending interrupt
 is answered, the recorded answers become the resume payload.
 
-The reason contract: a reason shaped like `{"message": str, "options":
-[{"value", "label"?, "style"?}, ...]}` renders as its message with the
-specified buttons, and `{"message": str, "input": {"label"?, "multiline"?}}`
-as its message with a free-text field (submitted with Enter, via
-dispatch_action); the two can be combined, whichever answer comes first
-settling the question. A string reason renders as that text; anything else
-is shown as pretty-printed JSON in a code block. Matching is all-or-nothing
-— one malformed field drops the whole reason to the fallback, never a
-partial repair.
+The reason contract: a reason shaped like `{"message": str, ...}` renders as
+its message with the widgets its remaining keys ask for. `approve` and
+`reject` (`{"label"?, "style"?}`) are the two buttons Welt words and values
+itself; `options` (`[{"value", "label"?, "style"?}, ...]`) are buttons the
+reason words and values itself; `input` (`{"label"?, "multiline"?}`) is a
+free-text field (submitted with Enter, via dispatch_action). Any of them
+combine, whichever answer comes first settling the question, and buttons
+render approve, reject, then the reason's own. A string reason renders as
+that text; anything else is shown as pretty-printed JSON in a code block.
+Matching is all-or-nothing — one malformed field drops the whole reason to
+the fallback, never a partial repair.
 
 A reason that declares no widget at all — a string, a bare `{"message":
 ...}`, any other JSON — gets the default Approve / Reject buttons, since a
@@ -65,8 +67,9 @@ _MAX_OPTIONS = 25
 # Slack carries is the serialized form.
 _OPTION_VALUE_MAX = 1800
 
-_ALLOWED_REASON_KEYS = frozenset({"message", "options", "input"})
+_ALLOWED_REASON_KEYS = frozenset({"message", "approve", "reject", "options", "input"})
 _ALLOWED_OPTION_KEYS = frozenset({"value", "label", "style"})
+_ALLOWED_DECISION_KEYS = frozenset({"label", "style"})
 _ALLOWED_INPUT_KEYS = frozenset({"label", "multiline"})
 _BUTTON_STYLES = frozenset({"primary", "danger"})
 
@@ -121,6 +124,15 @@ DEFAULT_OPTIONS = (
     InterruptOption(value=False, label="Reject", style="danger"),
 )
 
+# The same two buttons under the names a reason declares them by. A
+# reason asking for one takes this rendering unless it says otherwise,
+# which is what lets an adapter ask for approval without deciding how
+# approval is worded.
+_DECISION_DEFAULTS = {
+    "approve": DEFAULT_OPTIONS[0],
+    "reject": DEFAULT_OPTIONS[1],
+}
+
 
 def derive_interrupt_prompt(
     reason: object, *, text_limit: int = _MARKDOWN_TEXT_MAX
@@ -137,7 +149,8 @@ def derive_interrupt_prompt(
     declared none gets the default buttons — the one rule covering a
     string, a bare `{"message": ...}`, and any other JSON alike. A reason
     asking only for a free-text field has declared one, and keeps it
-    alone.
+    alone. Asking for `approve` or `reject` is asking for a default
+    button by name, so a reason that named one keeps only what it named.
 
     Args:
         reason (object): The interrupt's reason, any JSON value.
@@ -163,11 +176,16 @@ def _parse_structured_reason(reason: object, text_limit: int) -> InterruptPrompt
     """
     Parse a reason against the structured shape, all-or-nothing.
 
-    A structured reason carries `message` plus `options` (choice buttons),
-    `input` (a free-text field), both — buttons with a free-text
-    alternative, whichever answer comes first settling the question — or
-    neither, which is a message the caller wants rendered as itself and
-    leaves the answering to the default buttons.
+    A structured reason carries `message` plus any of `approve` and
+    `reject` (the two buttons Welt words and values itself), `options`
+    (buttons the reason words and values itself), and `input` (a free-text
+    field) — or none of them, which is a message the caller wants rendered
+    as itself and leaves the answering to the default buttons. Whichever
+    answer comes first settles the question.
+
+    A key's presence is what asks for its widget; its value says how that
+    widget looks. Buttons render in the order the keys are named here,
+    `approve` and `reject` ahead of the reason's own.
 
     Args:
         reason (object): The interrupt's reason, any JSON value.
@@ -177,7 +195,9 @@ def _parse_structured_reason(reason: object, text_limit: int) -> InterruptPrompt
         InterruptPrompt | None: The prompt, or None when anything about the
             shape is off — unknown keys, a missing or empty message, a
             missing value, an option value too long for a Slack button, an
-            unknown style, or more options than one actions block can hold.
+            unknown style, an option answering with the value `approve` or
+            `reject` already answers with, or more buttons than one actions
+            block can hold.
     """
     if not isinstance(reason, dict):
         return None
@@ -194,17 +214,69 @@ def _parse_structured_reason(reason: object, text_limit: int) -> InterruptPrompt
         input_field = _parse_input_field(reason.get("input"))
         if input_field is None:
             return None
+    decisions: list[InterruptOption] = []
+    for key, default in _DECISION_DEFAULTS.items():
+        if key not in keys:
+            continue
+        decision = _parse_decision(reason.get(key), default)
+        if decision is None:
+            return None
+        decisions.append(decision)
     options: tuple[InterruptOption, ...] = ()
     if "options" in keys:
         parsed_options = _parse_options(reason.get("options"))
         if parsed_options is None:
             return None
         options = parsed_options
+    buttons = tuple(decisions) + options
+    if len(buttons) > _MAX_OPTIONS:
+        return None
+    # Two buttons answering with one value leave the answer ambiguous, and
+    # the reason that wrote both cannot have meant either.
+    taken = {decision.value for decision in decisions}
+    if any(
+        isinstance(option.value, bool) and option.value in taken for option in options
+    ):
+        return None
     return InterruptPrompt(
         text=_clip(message, text_limit),
-        options=options,
+        options=buttons,
         input=input_field,
     )
+
+
+def _parse_decision(spec: object, default: InterruptOption) -> InterruptOption | None:
+    """
+    Parse a structured reason's `approve` or `reject` field.
+
+    The value it answers with is Welt's, not the reason's: these are the
+    buttons an agent asks for when the decision is approval, so the answer
+    is the same `true` / `false` the default buttons send and no adapter
+    has to invent a vocabulary for it. What the reason may say is how the
+    button looks, and saying nothing takes Welt's wording.
+
+    Args:
+        spec (object): The `approve` or `reject` value of a structured
+            reason.
+        default (InterruptOption): Welt's rendering of that button.
+
+    Returns:
+        InterruptOption | None: The button, or None when the shape is off —
+            not a dict, unknown keys, an empty or non-string label, or an
+            unknown style.
+    """
+    if not isinstance(spec, dict) or not set(spec) <= _ALLOWED_DECISION_KEYS:
+        return None
+    label = spec.get("label", default.label)
+    if not isinstance(label, str) or not label:
+        return None
+    style = default.style
+    if "style" in spec:
+        given = spec.get("style")
+        if not isinstance(given, str) or given not in _BUTTON_STYLES:
+            return None
+        style = given
+    return InterruptOption(value=default.value, label=label, style=style)
 
 
 def _parse_options(options: object) -> tuple[InterruptOption, ...] | None:

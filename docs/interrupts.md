@@ -31,14 +31,22 @@ Each question carries a `reason` — any JSON value — and Welt decides the ren
 
 A question that declared no widget of its own gets the default **Approve** / **Reject** buttons, so every question can be answered however its reason was written.
 
-A structured reason carries `message` plus `options` (choice buttons), `input` (a free-text field), both — buttons with a free-text alternative — or neither, which renders the message as itself and leaves the answering to the default buttons. The [wire contract](wire.md#interrupt) defines every field; the shapes look like this:
+A structured reason carries `message` plus any of `approve` and `reject` (the two buttons Welt words and values itself), `options` (choice buttons the question words and values itself), and `input` (a free-text field) — or none of them, which renders the message as itself and leaves the answering to the default buttons. A key's presence asks for its widget; its value says how that widget looks. The [wire contract](wire.md#interrupt) defines every field; the shapes look like this:
+
+```json
+{
+  "message": "Deploy to prod?",
+  "approve": {"label": "Deploy"},
+  "reject": {"label": "Cancel"}
+}
+```
 
 ```json
 {
   "message": "Deploy to prod?",
   "options": [
-    {"value": "approve", "label": "Deploy", "style": "primary"},
-    {"value": "reject", "label": "Cancel"}
+    {"value": "canary", "label": "Canary first", "style": "primary"},
+    {"value": "full", "label": "Full rollout"}
   ]
 }
 ```
@@ -50,7 +58,7 @@ A structured reason carries `message` plus `options` (choice buttons), `input` (
 }
 ```
 
-With both, the buttons render above the field, and whichever answer comes first settles the question — all of its widgets retire into the receipt together.
+Widgets combine: buttons render above the field, `approve` and `reject` ahead of the question's own buttons, and whichever answer comes first settles the question — all of its widgets retire into the receipt together.
 
 ![A question with both widgets in a Slack thread: Approve and Cancel buttons above a free-text field](images/interrupt-question.png)
 
@@ -58,7 +66,9 @@ Matching is all-or-nothing: a reason that misses the structured shape in any way
 
 The default buttons answer with `true` (**Approve**, primary) and `false` (**Reject**, danger), and they are the only default — no other widget renders unasked. The values are booleans because a question reaches these buttons precisely when nothing declared what to send back, which usually means the code reading the answer is code the agent's author did not write: Strands' steering annotates the response `bool` and tests it for truthiness, and the default evaluator of its HumanInTheLoop intervention accepts `true` as approval. Deliberately no free-text field: a field the question never asked for would accept answers the asking side never offered (a typed `y` would read as approval to an evaluator, with no hint on screen that it means anything). A question that wants free text asks for it with the structured reason's `input`.
 
-An option declares whatever value its own agent reads, and a string is often the clearest one — `{"value": "Approve"}` labels the button and answers with the same word. The defaults are booleans because they answer on behalf of a question that declared nothing, not because booleans are the preferred way to write an option.
+`approve` and `reject` answer with those same booleans, so a question whose decision is approval asks for them by name rather than declaring buttons of its own — the wording stays Welt's (overridable per question with `label` and `style`), and no agent-side vocabulary has to be invented for the answer.
+
+An option declares whatever value its own agent reads, and a string is often the clearest one — `{"value": "Canary first"}` labels the button and answers with the same word. The defaults are booleans because they answer on behalf of a question that declared nothing, not because booleans are the preferred way to write an option.
 
 An answer also carries the widget it came from, so a question offering both never has to guess whether a word was pressed or typed. The [wire contract](wire.md#interrupt_responses--resuming-a-run) has the shape.
 

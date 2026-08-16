@@ -139,24 +139,27 @@ A run that pauses for human input ends its stream with one `interrupt` event per
 - `name` — goes to Welt's log only.
 - `reason` — any JSON value; its shape alone decides the Slack rendering (see [Interrupts](interrupts.md) for how each shape looks).
 
-A **structured reason** renders as a message with the specified widgets. It is a JSON object with `message` plus `options`, `input`, both, or neither:
+A **structured reason** renders as a message with the specified widgets. It is a JSON object with `message` plus any of `approve`, `reject`, `options`, and `input` — a key's presence asks for its widget, and its value says how that widget looks:
 
 ```json
 {
   "message": "Deploy to prod?",
-  "options": [
-    {"value": "approve", "label": "Deploy", "style": "primary"},
-    {"value": "reject", "label": "Cancel"}
-  ],
+  "approve": {"label": "Deploy"},
+  "reject": {"label": "Cancel"},
+  "options": [{"value": "later", "label": "Ask me later"}],
   "input": {"label": "Or tell me what to change", "multiline": false}
 }
 ```
 
-A pressed button answers with its `value` — any JSON value, and the answer arrives as the value it was declared as. The text submitted in the field answers with itself; whichever comes first settles the question. A button's `label` defaults to its `value` (rendered as JSON where the value is not text), and the field's to `"Answer"`. A default is taken by leaving the key out: a key carrying `null` is an omitted `label` or `style` only when the key is absent, since `null` is itself a value an option may declare.
+`approve` and `reject` are the two buttons Welt words and values itself: they answer with `true` and `false`, the same values the default buttons send, so an agent asking for a decision does not have to invent a vocabulary for it. Their `label` and `style` default to Welt's own — `Approve` (primary) and `Reject` (danger) — and a reason may override either. Ask for both, one, or neither.
 
-A reason carrying `message` alone declares no widget, and is answered by the default Approve / Reject buttons — the same buttons any reason without a widget gets, a plain string and any other JSON value included. A reason asking only for `input` has declared a widget and keeps its field alone.
+`options` are buttons the reason words and values itself. A pressed button answers with its `value` — any JSON value, and the answer arrives as the value it was declared as. The text submitted in the field answers with itself; whichever answer comes first settles the question. An option's `label` defaults to its `value` (rendered as JSON where the value is not text), and the field's to `"Answer"`. A default is taken by leaving the key out: a key carrying `null` is an omitted `label` or `style` only when the key is absent, since `null` is itself a value an option may declare.
 
-Matching is all-or-nothing: one malformed field, one key beyond `message` / `options` / `input`, or a value Slack cannot render — an empty `message`, an `options` key with no options at all or more than 25 of them, an option `value` whose JSON runs past 1800 characters, a `style` other than `primary` or `danger` — drops the whole reason to the fallback rendering, with no partial repair. Labels that overrun Slack's element caps are clipped instead, the way bodies are.
+Buttons render in one row, `approve` and `reject` ahead of the reason's own.
+
+A reason carrying `message` alone declares no widget, and is answered by the default Approve / Reject buttons — the same buttons any reason without a widget gets, a plain string and any other JSON value included. A reason asking only for `input` has declared a widget and keeps its field alone, and one asking only for `approve` keeps that button alone.
+
+Matching is all-or-nothing: one malformed field, one key beyond `message` / `approve` / `reject` / `options` / `input`, or a value Slack cannot render — an empty `message`, an `options` key with no options at all, more than 25 buttons across all of them, an option `value` whose JSON runs past 1800 characters, a `style` other than `primary` or `danger`, an option answering with the `true` or `false` a named decision already answers with — drops the whole reason to the fallback rendering, with no partial repair. Labels that overrun Slack's element caps are clipped instead, the way bodies are.
 
 Those caps are Welt's rendering limits rather than parts of the vocabulary, so an adapter need not repeat them. The shape is frozen at the fields shown above; emoji, confirm dialogs, URLs and the like are beyond Welt's abstraction and will not be added.
 
