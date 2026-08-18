@@ -21,11 +21,11 @@ Adapters exist for several agent frameworks, in Python and TypeScript — see [A
 
 ## Quick Start
 
-The Quick Start runs everything on your machine — Welt in one terminal, the example agent in another. Nothing is deployed; the only AWS dependency is the Bedrock model the agent calls. Deployment comes after, once the conversation works — see [Deploy the Agent to AgentCore](#deploy-the-agent-to-agentcore).
+The Quick Start runs everything on your machine — Welt in one terminal, the example agent in another. Nothing is deployed; the only AWS dependency is the Bedrock model the agent calls. Deployment comes after, once the conversation works — see [Deployment](#deployment).
 
 ### 1. Create a Slack App
 
-- Go to <https://api.slack.com/apps> and create a new Slack app from [`manifest.yml`](manifest.yml).
+- Go to <https://api.slack.com/apps> and create a new Slack app from [`manifest.yml`](manifest.yml) — or open [the pre-filled creation screen][create-app] to skip the copy and paste.
 - In **Basic Information > App-Level Tokens**, generate a token with the `connections:write` scope and copy it (`xapp-1-...`).
 - In **Install App**, install the app to your workspace and copy the **Bot User OAuth Token** (`xoxb-...`).
 
@@ -65,17 +65,27 @@ In another terminal, run [welt-io-strands's example agent](https://github.com/iw
 
 Invite the bot to a channel (`/invite @Welt`) and mention it, or send it a DM. Welt streams the agent's reply into the thread; the example agent's README suggests things to try.
 
-## Deploy the Agent to AgentCore
+## Deployment
 
-When the local loop works, move the agent to AgentCore Runtime: deploy it by following the example's README (its **Deploy** section), then point `AGENT_ARN` at the agent runtime ARN from the deploy output and restart Welt:
+The Quick Start keeps everything on your machine. For real use, the agent goes to AgentCore and Welt goes somewhere it keeps running.
+
+**The agent** is one of two things:
+
+- Your own, on AgentCore Runtime. Build it on one of the [adapters](#agent-side-adapters), with its example agent as the reference — deploying that example as it is makes a fine start — and deploy it; each example's README has a **Deploy** section. `AGENT_ARN` is the agent runtime ARN.
+- A [managed harness](docs/harness.md), with no agent code at all. Create one in the AgentCore console; `AGENT_ARN` is its ARN.
+
+Either way, restart Welt with `AGENT_ARN` set:
 
 ```sh
 AGENT_ARN=arn:aws:bedrock-agentcore:...
 ```
 
-Welt now picks up your AWS credentials the standard SDK way — environment variables, `AWS_PROFILE`, an SSO session — and the identity needs two actions on the agent runtime ARN: `bedrock-agentcore:InvokeAgentRuntime`, and `bedrock-agentcore:InvokeAgentRuntimeForUser` because Welt sends the verified Slack user as the [`runtimeUserId`](docs/wire.md#session-and-identity).
+Welt now picks up your AWS credentials the standard SDK way — environment variables, `AWS_PROFILE`, an SSO session — and that identity needs permission to invoke the target: `bedrock-agentcore:InvokeAgentRuntime` and `bedrock-agentcore:InvokeAgentRuntimeForUser` on a runtime agent (Welt sends the verified Slack user as the [`runtimeUserId`](docs/wire.md#session-and-identity)), or `bedrock-agentcore:InvokeHarness` on a harness.
 
-Once you're comfortable, swap in your own agent and point `AGENT_ARN` at its deployment — see [Agent-Side Adapters](#agent-side-adapters) below.
+**Welt** then goes to one of two places, whichever the agent is:
+
+- [Running Welt as a Resident Process](docs/socket.md) — Socket Mode, so no public URL is involved. Runs as a container on ECS or any host you already have.
+- [Running Welt on AWS Lambda](docs/lambda.md) — no always-on process, no cost while idle. Slack reaches it at a Function URL.
 
 ## Features
 
@@ -111,20 +121,6 @@ Optional environment variables, all with working defaults:
 | `DEPS_LOG_LEVEL` | `INFO` | Logging level for dependency libraries (botocore, slack_bolt, ...). Separate from `LOG_LEVEL` because botocore logs credential material at `DEBUG`. |
 | `SLACK_STREAM_BUFFER_SIZE` | `256` | Markdown characters buffered before each streaming update; larger values mean fewer Slack API calls. |
 
-## Other Ways to Run
-
-- Running the container image — the same Socket Mode process, packaged as [`ghcr.io/iwamot/welt`](https://github.com/iwamot/welt/pkgs/container/welt) for hosting on AWS. Supply the same variables as the `.env` file through the hosting environment (an ECS task definition, ...) and let its IAM role provide the AWS credentials:
-
-  ```sh
-  docker run -it \
-    -e SLACK_APP_TOKEN=xapp-1-... \
-    -e SLACK_BOT_TOKEN=xoxb-... \
-    -e AGENT_ARN=arn:aws:bedrock-agentcore:... \
-    ghcr.io/iwamot/welt:latest
-  ```
-- [Running Welt on AWS Lambda](docs/lambda.md) — serve Welt on Lambda instead of a resident process: no always-on process, no cost while idle.
-- [Chatting with an AgentCore harness](docs/harness.md) — point `AGENT_ARN` at a managed harness instead of your own agent code.
-
 ## Contributing
 
 Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
@@ -136,3 +132,5 @@ Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) 
 ## License
 
 MIT
+
+[create-app]: https://api.slack.com/apps?new_app=1&manifest_yaml=display_information%3A%0A%20%20name%3A%20Welt%0Afeatures%3A%0A%20%20app_home%3A%0A%20%20%20%20home_tab_enabled%3A%20false%0A%20%20%20%20messages_tab_enabled%3A%20true%0A%20%20%20%20messages_tab_read_only_enabled%3A%20false%0A%20%20bot_user%3A%0A%20%20%20%20display_name%3A%20Welt%0A%20%20%20%20always_online%3A%20true%0Aoauth_config%3A%0A%20%20scopes%3A%0A%20%20%20%20bot%3A%0A%20%20%20%20%20%20-%20channels%3Ahistory%0A%20%20%20%20%20%20-%20chat%3Awrite%0A%20%20%20%20%20%20-%20files%3Aread%0A%20%20%20%20%20%20-%20files%3Awrite%0A%20%20%20%20%20%20-%20groups%3Ahistory%0A%20%20%20%20%20%20-%20im%3Ahistory%0A%20%20%20%20%20%20-%20mpim%3Ahistory%0A%20%20%20%20%20%20-%20reactions%3Awrite%0A%20%20%20%20%20%20-%20users%3Aread%0Asettings%3A%0A%20%20event_subscriptions%3A%0A%20%20%20%20bot_events%3A%0A%20%20%20%20%20%20-%20message.channels%0A%20%20%20%20%20%20-%20message.groups%0A%20%20%20%20%20%20-%20message.im%0A%20%20%20%20%20%20-%20message.mpim%0A%20%20interactivity%3A%0A%20%20%20%20is_enabled%3A%20true%0A%20%20socket_mode_enabled%3A%20true%0A

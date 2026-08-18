@@ -10,7 +10,7 @@ Disabled by default. Set `FILE_INPUT_MODALITIES` to the modalities to accept:
 FILE_INPUT_MODALITIES=image,document,video
 ```
 
-Allow only the modalities your model accepts — see [supported foundation models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards.html).
+Allow only the modalities your model accepts — see [supported foundation models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards.html). A [managed harness](harness.md) takes no file input, so the setting is ignored there.
 
 Welt downloads the files attached to the thread and embeds them into the conversation as image/document/video blocks, newest first, within the Converse ceilings — see the wire contract's [Limits](wire.md#limits). The [encoding on the wire](wire.md#messages--a-conversation-turn) is base64, and an [agent-side adapter](../README.md#agent-side-adapters) decodes it back to bytes for you — see its documentation.
 
