@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from app.agent_logic import is_harness_arn, parse_arn_region
+from app.agent_logic import is_harness_arn, parse_arn_region, split_harness_endpoint
 from app.slack_file_logic import Modality, parse_file_input_modalities
 
 
@@ -21,8 +21,11 @@ class Env:
 
     # An AgentCore Runtime agent ARN or a managed harness ARN; Welt picks the
     # invoke API (invoke_agent_runtime / invoke_harness) by the resource kind.
-    # None (AGENT_ARN unset) is local mode, for development: Welt invokes an
-    # agent served locally by the AgentCore SDK over plain HTTP instead.
+    # A harness endpoint ARN is split on load: the harness ARN stays here and
+    # the endpoint name goes to `agent_qualifier`, the way InvokeHarness
+    # takes them. None (AGENT_ARN unset) is local mode, for development:
+    # Welt invokes an agent served locally by the AgentCore SDK over plain
+    # HTTP instead.
     agent_arn: str | None
     # The agent's region, taken from the ARN; the bedrock-agentcore client
     # targets it directly, so no separate region setting exists. None exactly
@@ -81,7 +84,10 @@ def load_env(environ: Mapping[str, str]) -> Env:
     `boot_warnings` entry instead of failing the boot. A harness ignores the
     Runtime-only FILE_INPUT_MODALITIES and AGENT_MANAGES_HISTORY — it accepts
     text content only and always keeps the conversation history itself — and
-    local mode ignores AGENT_QUALIFIER, having no endpoints to select.
+    local mode ignores AGENT_QUALIFIER, having no endpoints to select. A
+    harness endpoint ARN in AGENT_ARN names the endpoint itself, so it is
+    split into the harness ARN and the qualifier, and a different
+    AGENT_QUALIFIER is ignored.
 
     Returns:
         Env: The validated configuration.
@@ -91,6 +97,7 @@ def load_env(environ: Mapping[str, str]) -> Env:
             malformed.
     """
     agent_arn = environ.get("AGENT_ARN") or None
+    harness_endpoint: str | None = None
     if agent_arn is None:
         agent_region = None
         harness = False
@@ -102,6 +109,8 @@ def load_env(environ: Mapping[str, str]) -> Env:
                 f"region, got {agent_arn!r}"
             )
         harness = is_harness_arn(agent_arn)
+        if harness:
+            agent_arn, harness_endpoint = split_harness_endpoint(agent_arn)
     # boot_warnings stays in ascending variable-name order.
     boot_warnings: list[str] = []
     agent_manages_history = _get_bool(environ, "AGENT_MANAGES_HISTORY", harness)
@@ -118,6 +127,13 @@ def load_env(environ: Mapping[str, str]) -> Env:
             "Ignoring AGENT_QUALIFIER: AGENT_ARN is not set, and the local "
             "agent has no endpoints to select"
         )
+    if harness_endpoint is not None:
+        if agent_qualifier is not None and agent_qualifier != harness_endpoint:
+            boot_warnings.append(
+                "Ignoring AGENT_QUALIFIER: AGENT_ARN is a harness endpoint "
+                f"ARN, which already names the endpoint {harness_endpoint!r}"
+            )
+        agent_qualifier = harness_endpoint
     file_input_modalities = parse_file_input_modalities(
         environ.get("FILE_INPUT_MODALITIES", "")
     )

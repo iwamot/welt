@@ -102,6 +102,31 @@ def build_qualifier_kwargs(qualifier: str | None) -> dict[str, str]:
     return {} if qualifier is None else {"qualifier": qualifier}
 
 
+def split_harness_endpoint(arn: str) -> tuple[str, str | None]:
+    """
+    Split a harness endpoint ARN into the harness ARN and the endpoint name.
+
+    The console shows a harness under two ARNs: its own
+    (`...:harness/<id>`) and its endpoint's
+    (`...:harness/<id>/harness-endpoint/<name>`). InvokeHarness takes only
+    the former and names the endpoint through its `qualifier` argument, so
+    a configured endpoint ARN is split into the two. (InvokeAgentRuntime
+    accepts a runtime endpoint ARN as it is, so runtime ARNs are not
+    split.)
+
+    Args:
+        arn (str): A harness ARN, with or without an endpoint.
+
+    Returns:
+        tuple[str, str | None]: The harness ARN and the endpoint name, or
+            the ARN unchanged and None when it names no endpoint.
+    """
+    harness_arn, sep, endpoint = arn.partition("/harness-endpoint/")
+    if not sep or not endpoint:
+        return arn, None
+    return harness_arn, endpoint
+
+
 def is_harness_arn(arn: str) -> bool:
     """
     Check whether an AgentCore ARN points at a managed harness.
