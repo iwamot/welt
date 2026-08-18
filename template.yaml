@@ -61,10 +61,21 @@ Resources:
                 # Welt passes runtimeUserId, which needs the ForUser action.
                 - bedrock-agentcore:InvokeAgentRuntimeForUser
                 - bedrock-agentcore:InvokeHarness
+              # The target itself and everything under it — its endpoints,
+              # which is where Runtime agents are invoked. The ARN is cut back
+              # to the resource name first, so an endpoint ARN copied from the
+              # console (.../runtime-endpoint/x, .../harness-endpoint/x) grants
+              # the same as the plain one.
               Resource:
-                - !Ref AgentArn
-                # Runtime agents are invoked through an endpoint subresource.
-                - !Sub ${AgentArn}/*
+                - !Join
+                  - /
+                  - - !Select [0, !Split ["/", !Ref AgentArn]]
+                    - !Select [1, !Split ["/", !Ref AgentArn]]
+                - !Join
+                  - /
+                  - - !Select [0, !Split ["/", !Ref AgentArn]]
+                    - !Select [1, !Split ["/", !Ref AgentArn]]
+                    - "*"
 
 Outputs:
   FunctionUrl:

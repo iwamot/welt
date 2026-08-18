@@ -2,6 +2,8 @@
 
 To chat with a harness, set Welt's `AGENT_ARN` to the harness ARN instead of a runtime agent ARN — everything else works the same.
 
+The console shows a harness under its own ARN and under its endpoint's (`.../harness-endpoint/<name>`); either works, and the endpoint ARN selects that endpoint, the way `AGENT_QUALIFIER` does. The identity Welt runs as needs `bedrock-agentcore:InvokeHarness` on the harness ARN (the Lambda template grants it).
+
 However, three things work differently from a runtime agent:
 
 - `FILE_INPUT_MODALITIES` is ignored, with a startup warning — a harness does not take file input.

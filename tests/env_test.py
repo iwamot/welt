@@ -123,6 +123,59 @@ def test_harness_arn_keeps_the_qualifier():
     assert result.boot_warnings == ()
 
 
+def test_harness_endpoint_arn_becomes_harness_arn_and_qualifier():
+    environ = {**_REQUIRED, "AGENT_ARN": f"{_HARNESS_ARN}/harness-endpoint/prod"}
+
+    result = load_env(environ)
+
+    assert result.agent_arn == _HARNESS_ARN
+    assert result.agent_qualifier == "prod"
+    assert result.agent_region == "us-west-2"
+    assert result.agent_manages_history is True
+    assert result.boot_warnings == ()
+
+
+def test_harness_endpoint_arn_agrees_with_a_matching_qualifier():
+    environ = {
+        **_REQUIRED,
+        "AGENT_ARN": f"{_HARNESS_ARN}/harness-endpoint/prod",
+        "AGENT_QUALIFIER": "prod",
+    }
+
+    result = load_env(environ)
+
+    assert result.agent_qualifier == "prod"
+    assert result.boot_warnings == ()
+
+
+def test_harness_endpoint_arn_overrides_a_different_qualifier_with_a_warning():
+    environ = {
+        **_REQUIRED,
+        "AGENT_ARN": f"{_HARNESS_ARN}/harness-endpoint/prod",
+        "AGENT_QUALIFIER": "staging",
+    }
+
+    result = load_env(environ)
+
+    assert result.agent_arn == _HARNESS_ARN
+    assert result.agent_qualifier == "prod"
+    assert result.boot_warnings == (
+        (
+            "Ignoring AGENT_QUALIFIER: AGENT_ARN is a harness endpoint ARN, "
+            "which already names the endpoint 'prod'"
+        ),
+    )
+
+
+def test_runtime_endpoint_arn_is_passed_through_unchanged():
+    arn = f"{_RUNTIME_ARN}/runtime-endpoint/prod"
+
+    result = load_env({**_REQUIRED, "AGENT_ARN": arn})
+
+    assert result.agent_arn == arn
+    assert result.agent_qualifier is None
+
+
 def test_arn_without_region_is_rejected():
     environ = {**_REQUIRED, "AGENT_ARN": "runtime/my_agent-abcdefghij"}
 

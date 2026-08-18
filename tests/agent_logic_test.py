@@ -8,6 +8,7 @@ from app.agent_logic import (
     build_runtime_user_id,
     is_harness_arn,
     parse_arn_region,
+    split_harness_endpoint,
 )
 
 
@@ -76,6 +77,31 @@ def test_runtime_arn_is_not_a_harness():
 
 def test_malformed_arn_is_not_a_harness():
     assert not is_harness_arn("harness/short")
+
+
+_HARNESS_ARN = (
+    "arn:aws:bedrock-agentcore:us-west-2:123456789012:harness/MyHarness-XyZ1234567"
+)
+
+
+def test_harness_endpoint_arn_splits_into_harness_arn_and_endpoint():
+    result = split_harness_endpoint(f"{_HARNESS_ARN}/harness-endpoint/DEFAULT")
+
+    assert result == (_HARNESS_ARN, "DEFAULT")
+
+
+def test_harness_arn_without_an_endpoint_is_left_alone():
+    assert split_harness_endpoint(_HARNESS_ARN) == (_HARNESS_ARN, None)
+
+
+def test_harness_endpoint_arn_with_an_empty_endpoint_is_left_alone():
+    arn = f"{_HARNESS_ARN}/harness-endpoint/"
+
+    assert split_harness_endpoint(arn) == (arn, None)
+
+
+def test_harness_endpoint_arn_is_still_a_harness():
+    assert is_harness_arn(f"{_HARNESS_ARN}/harness-endpoint/DEFAULT")
 
 
 def test_arn_region_is_extracted():
