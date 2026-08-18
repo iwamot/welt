@@ -15,6 +15,8 @@ The wire rides AgentCore's invoke surface, in one of two modes:
 | Deployed (`AGENT_ARN` is a Runtime agent ARN) | `InvokeAgentRuntime` with the JSON payload | SSE stream |
 | Local (`AGENT_ARN` unset) | `POST http://localhost:8080/invocations`, `Accept: text/event-stream` | SSE stream |
 
+A harness ARN in `AGENT_ARN` is neither: it selects `InvokeHarness`, the exception above.
+
 Local mode targets the surface the AgentCore SDK's local server provides — the session id travels in the `X-Amzn-Bedrock-AgentCore-Runtime-Session-Id` header. The agent doesn't have to be up when Welt starts; each conversation opens a fresh connection, so the agent can start, stop, or be swapped at any time.
 
 In the reply stream, each event is one `data: {json}` SSE line carrying a JSON object. Anything else on the stream is ignored.
@@ -163,18 +165,6 @@ Matching is all-or-nothing: one malformed field, one key beyond `message` / `app
 
 Those caps are Welt's rendering limits rather than parts of the vocabulary, so an adapter need not repeat them. The shape is frozen at the fields shown above; emoji, confirm dialogs, URLs and the like are beyond Welt's abstraction and will not be added.
 
-## Limits
-
-Inbound, the embedded file blocks stay within the Converse limits — Welt never sends more than:
-
-| Modality | Files per conversation | Per-file size |
-|---|---|---|
-| `image` | 20 | 3.75 MB |
-| `document` | 5 | 4.5 MB |
-| `video` | 1 | 18.75 MB |
-
-Outbound, a `file` event travels as one streamed chunk, and AgentCore Runtime caps a response chunk at **10 MB** — going over kills the stream. With base64's 4/3 growth, the practical ceiling is roughly **7 MB** of raw file, and there is no slicing protocol; for anything bigger, put the file somewhere else (for example S3) and reply with a link instead.
-
 ## Checking an implementation by hand
 
 Nothing tests the wire end to end. Welt's tests and an adapter's tests each look at their own side, and what actually travels between them is covered by neither — so a change to either side is worth exercising by hand.
@@ -202,6 +192,18 @@ curl -N -H 'Content-Type: application/json' \
 The id goes in the header rather than the body, where it would show up as a payload key this contract does not have. Anything non-empty works locally; 33 characters or more keeps the same command usable against a deployment, which is where the [Runtime's minimum](#session-and-identity) applies.
 
 Read the `data:` lines for what the events carry beyond what Welt reads. Extra fields cost bytes on every event and are the one thing the Slack side cannot show you.
+
+## Limits
+
+Inbound, the embedded file blocks stay within the Converse limits — Welt never sends more than:
+
+| Modality | Files per conversation | Per-file size |
+|---|---|---|
+| `image` | 20 | 3.75 MB |
+| `document` | 5 | 4.5 MB |
+| `video` | 1 | 18.75 MB |
+
+Outbound, a `file` event travels as one streamed chunk, and AgentCore Runtime caps a response chunk at **10 MB** — going over kills the stream. With base64's 4/3 growth, the practical ceiling is roughly **7 MB** of raw file, and there is no slicing protocol; for anything bigger, put the file somewhere else (for example S3) and reply with a link instead.
 
 ## Versioning
 
