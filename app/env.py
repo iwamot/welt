@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from app.agent_logic import is_harness_arn, parse_arn_region, split_harness_endpoint
+from app.agent_logic import is_harness_arn, parse_arn_region, split_endpoint_arn
 from app.slack_file_logic import Modality, parse_file_input_modalities
 
 
@@ -21,9 +21,9 @@ class Env:
 
     # An AgentCore Runtime agent ARN or a managed harness ARN; Welt picks the
     # invoke API (invoke_agent_runtime / invoke_harness) by the resource kind.
-    # A harness endpoint ARN is split on load: the harness ARN stays here and
-    # the endpoint name goes to `agent_qualifier`, the way InvokeHarness
-    # takes them. None (AGENT_ARN unset) is local mode, for development:
+    # An endpoint ARN of either kind is split on load: the resource ARN
+    # stays here and the endpoint name goes to `agent_qualifier`, the way
+    # both invoke APIs take them. None (AGENT_ARN unset) is local mode, for development:
     # Welt invokes an agent served locally by the AgentCore SDK over plain
     # HTTP instead.
     agent_arn: str | None
@@ -31,10 +31,10 @@ class Env:
     # targets it directly, so no separate region setting exists. None exactly
     # when `agent_arn` is None — local mode has no region.
     agent_region: str | None
-    # The endpoint to invoke on the target named by `agent_arn`, sent as the
-    # `qualifier` both invoke APIs take. None sends no qualifier at all,
-    # which AgentCore resolves to the DEFAULT endpoint. Local mode has no
-    # endpoints, so this is None whenever `agent_arn` is.
+    # The endpoint `agent_arn` named, sent as the `qualifier` both invoke
+    # APIs take. None sends no qualifier at all, which AgentCore resolves to
+    # the DEFAULT endpoint — so an ARN that names no endpoint gets DEFAULT.
+    # Local mode has no endpoints, so this is None whenever `agent_arn` is.
     agent_qualifier: str | None
     # The Slack bot token (xoxb) for Web API calls. Transport credentials
     # (the Socket Mode xapp token, the HTTP signing secret) belong to the
@@ -80,14 +80,16 @@ def load_env(environ: Mapping[str, str]) -> Env:
     ARN exists to configure. A forgotten AGENT_ARN thus boots into local
     mode — the startup check on the local agent is what catches it.
 
+    AGENT_ARN carries the endpoint too: an ARN that names one
+    (`.../runtime-endpoint/<name>`, `.../harness-endpoint/<name>`) is split
+    into the resource ARN the invoke call takes and the qualifier that
+    selects the endpoint, and an ARN that names none resolves to DEFAULT.
+    Both resource kinds are configured the same way.
+
     Settings the target cannot honor are ignored, each reported as a
     `boot_warnings` entry instead of failing the boot. A harness ignores the
-    Runtime-only FILE_INPUT_MODALITIES and AGENT_MANAGES_HISTORY — it accepts
-    text content only and always keeps the conversation history itself — and
-    local mode ignores AGENT_QUALIFIER, having no endpoints to select. A
-    harness endpoint ARN in AGENT_ARN names the endpoint itself, so it is
-    split into the harness ARN and the qualifier, and a different
-    AGENT_QUALIFIER is ignored.
+    Runtime-only FILE_INPUT_MODALITIES and AGENT_MANAGES_HISTORY: it accepts
+    text content only and always keeps the conversation history itself.
 
     Returns:
         Env: The validated configuration.
@@ -97,7 +99,7 @@ def load_env(environ: Mapping[str, str]) -> Env:
             malformed.
     """
     agent_arn = environ.get("AGENT_ARN") or None
-    harness_endpoint: str | None = None
+    arn_endpoint: str | None = None
     if agent_arn is None:
         agent_region = None
         harness = False
@@ -109,8 +111,7 @@ def load_env(environ: Mapping[str, str]) -> Env:
                 f"region, got {agent_arn!r}"
             )
         harness = is_harness_arn(agent_arn)
-        if harness:
-            agent_arn, harness_endpoint = split_harness_endpoint(agent_arn)
+        agent_arn, arn_endpoint = split_endpoint_arn(agent_arn)
     # boot_warnings stays in ascending variable-name order.
     boot_warnings: list[str] = []
     agent_manages_history = _get_bool(environ, "AGENT_MANAGES_HISTORY", harness)
@@ -120,20 +121,6 @@ def load_env(environ: Mapping[str, str]) -> Env:
             "Ignoring AGENT_MANAGES_HISTORY: AGENT_ARN is a harness "
             "ARN, and the harness keeps the conversation history itself"
         )
-    agent_qualifier = environ.get("AGENT_QUALIFIER") or None
-    if agent_arn is None and agent_qualifier is not None:
-        agent_qualifier = None
-        boot_warnings.append(
-            "Ignoring AGENT_QUALIFIER: AGENT_ARN is not set, and the local "
-            "agent has no endpoints to select"
-        )
-    if harness_endpoint is not None:
-        if agent_qualifier is not None and agent_qualifier != harness_endpoint:
-            boot_warnings.append(
-                "Ignoring AGENT_QUALIFIER: AGENT_ARN is a harness endpoint "
-                f"ARN, which already names the endpoint {harness_endpoint!r}"
-            )
-        agent_qualifier = harness_endpoint
     file_input_modalities = parse_file_input_modalities(
         environ.get("FILE_INPUT_MODALITIES", "")
     )
@@ -146,7 +133,7 @@ def load_env(environ: Mapping[str, str]) -> Env:
     return Env(
         agent_arn=agent_arn,
         agent_region=agent_region,
-        agent_qualifier=agent_qualifier,
+        agent_qualifier=arn_endpoint,
         slack_bot_token=require_env(environ, "SLACK_BOT_TOKEN"),
         log_level=environ.get("LOG_LEVEL", "INFO"),
         deps_log_level=environ.get("DEPS_LOG_LEVEL", "INFO"),

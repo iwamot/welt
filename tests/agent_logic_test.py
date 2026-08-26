@@ -8,7 +8,7 @@ from app.agent_logic import (
     build_runtime_user_id,
     is_harness_arn,
     parse_arn_region,
-    split_harness_endpoint,
+    split_endpoint_arn,
 )
 
 
@@ -85,19 +85,19 @@ _HARNESS_ARN = (
 
 
 def test_harness_endpoint_arn_splits_into_harness_arn_and_endpoint():
-    result = split_harness_endpoint(f"{_HARNESS_ARN}/harness-endpoint/DEFAULT")
+    result = split_endpoint_arn(f"{_HARNESS_ARN}/harness-endpoint/DEFAULT")
 
     assert result == (_HARNESS_ARN, "DEFAULT")
 
 
 def test_harness_arn_without_an_endpoint_is_left_alone():
-    assert split_harness_endpoint(_HARNESS_ARN) == (_HARNESS_ARN, None)
+    assert split_endpoint_arn(_HARNESS_ARN) == (_HARNESS_ARN, None)
 
 
 def test_harness_endpoint_arn_with_an_empty_endpoint_is_left_alone():
     arn = f"{_HARNESS_ARN}/harness-endpoint/"
 
-    assert split_harness_endpoint(arn) == (arn, None)
+    assert split_endpoint_arn(arn) == (arn, None)
 
 
 def test_harness_endpoint_arn_is_still_a_harness():
@@ -121,3 +121,24 @@ def test_arn_with_empty_region_has_no_region():
 
 def test_malformed_arn_has_no_region():
     assert parse_arn_region("runtime/short") is None
+
+
+_RUNTIME_ARN = (
+    "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/my_agent-abcdefghij"
+)
+
+
+def test_runtime_endpoint_arn_splits_into_runtime_arn_and_endpoint():
+    result = split_endpoint_arn(f"{_RUNTIME_ARN}/runtime-endpoint/DEFAULT")
+
+    assert result == (_RUNTIME_ARN, "DEFAULT")
+
+
+def test_runtime_arn_without_an_endpoint_is_left_alone():
+    assert split_endpoint_arn(_RUNTIME_ARN) == (_RUNTIME_ARN, None)
+
+
+def test_runtime_endpoint_arn_with_an_empty_endpoint_is_left_alone():
+    arn = f"{_RUNTIME_ARN}/runtime-endpoint/"
+
+    assert split_endpoint_arn(arn) == (arn, None)
