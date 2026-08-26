@@ -55,17 +55,28 @@ _MODALITY_BY_NAME: dict[str, Modality] = {
     "video": "video",
 }
 
-# Converse per-request block limits; recent replies win the slots.
+# Per-request block counts; recent replies win the slots. Only the document
+# count is Converse's own ("You can't include more than 5 documents in a
+# request"). The video count is Nova's, which refuses a second video. The
+# image count is the ceiling Bedrock documents rather than one that is
+# enforced — a 21st image is accepted — so 20 is where Welt stops on its own.
 MAX_SLOTS_BY_MODALITY: dict[Modality, int] = {"image": 20, "document": 5, "video": 1}
 
-# Converse per-file size limits, checked against Slack `size` metadata before
-# download. Image/document are the documented per-file caps (3.75 MB / 4.5 MB);
-# the video cap is the largest raw size whose base64 form (4/3 growth) still
-# fits Nova's 25 MB total-payload limit.
+# Per-file size limits, checked against Slack `size` metadata before download.
+# Each is the largest raw size its boundary still accepts, and the three come
+# from three places that count in three different units (measured 2026-08-26,
+# nova-lite and claude-haiku-4-5):
+#   image     Anthropic models cap the base64 form at 5 MiB, so 3,932,160 raw
+#             bytes encode to exactly the limit. Converse does not check an
+#             image's size itself; Nova takes far larger ones.
+#   document  Converse's own cap, on the raw bytes, and 4.5 MB means
+#             4,500,000: one byte more is rejected.
+#   video     Nova caps the base64 form at 25,000,000, so 18,750,000 raw bytes
+#             encode to exactly the limit.
 MAX_BYTES_BY_MODALITY: dict[Modality, int] = {
-    "image": 3_932_160,  # 3.75 MB
-    "document": 4_718_592,  # 4.5 MB
-    "video": 19_660_800,  # 25 MB * 3/4
+    "image": 3_932_160,
+    "document": 4_500_000,
+    "video": 18_750_000,
 }
 
 # Slack sometimes serves PDFs as a generic binary stream.
@@ -183,13 +194,15 @@ def select_files_to_fetch(
     Select which Slack files Welt should download for the agent payload.
 
     Only files posted by humans count (bot posts are excluded). Each modality
-    (image / document / video) fills at most its Converse per-request slots,
-    preferring the most recent replies so old attachments fall off first.
-    Files whose MIME type maps to no allowed modality, whose size is zero or
-    exceeds the modality's Converse limit, or with missing metadata, are
-    skipped without consuming a slot. An empty file has nothing for the model
-    to read, so it is left at this boundary rather than downloaded and
-    embedded as an empty content block.
+    (image / document / video) fills at most its slots, preferring the most
+    recent replies so old attachments fall off first. Files whose MIME type
+    maps to no allowed modality, whose size is missing, unreadable, zero, or
+    past the modality's ceiling, are skipped without consuming a slot. The
+    slots and ceilings are `MAX_SLOTS_BY_MODALITY` and
+    `MAX_BYTES_BY_MODALITY`, which say where each of them comes from.
+
+    What the selection adds up to is not bounded here; `payload_logic`
+    trims the thread to one payload once the text is counted with it.
 
     Args:
         replies (list[dict]): Slack replies in chronological order.
@@ -247,10 +260,12 @@ def _select_file(
     file_format, modality = resolved
     size = file.get("size")
     max_bytes = max_bytes_by_modality.get(modality, 0)
-    # `size` is Slack's metadata, not the file: an upload reported as empty is
-    # left here rather than downloaded to find out. One that holds content and
-    # still reports zero would be lost the same way, and silently — as every
-    # skip in this function is.
+    # `size` is Slack's metadata rather than the file, and it is not always
+    # a number to compare: an entry that names no size, or names something
+    # other than an integer, is skipped here instead of downloaded to find
+    # out. Zero is skipped with it, though neither upload path produces one —
+    # the Slack client refuses to attach an empty file, and
+    # files.getUploadURLExternal answers a length of 0 with missing_argument.
     if not isinstance(size, int) or not 0 < size <= max_bytes:
         return None
     name = file.get("name")

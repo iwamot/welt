@@ -102,16 +102,21 @@ def build_messages(
 
     Trailing bot replies (e.g. a stale loading message) are dropped, and so are
     leading ones (left behind when an overlong thread is truncated to its
-    newest replies) because Converse requires a conversation to start with a
-    user message. Bot replies whose text is empty after cleaning are skipped
+    newest replies) so the conversation starts with something a person said
+    rather than mid-answer. Nova enforces the same shape, refusing a
+    conversation that opens on an assistant message, where Anthropic's
+    models take one. Bot replies whose text is empty after cleaning are skipped
     so no blank content block is sent; bot replies with text become
     `assistant` messages. Everyone else becomes a `user` message prefixed with
     their mention so the model can attribute turns — always, even when the
     text is empty after cleaning (e.g. a mention-only call): the prefix keeps
     the text block non-blank for Converse, and the model sees who pinged it
-    without saying anything. File blocks are attached to
-    the user message of the reply that carried the file: documents before the
-    text, images and videos after it (Converse rejects some block orders).
+    without saying anything. That text block is also what lets a reply carry a
+    document at all: Converse refuses a message holding a document and no
+    text ("A text block must be included when using documents"). File blocks
+    go on the user message of the reply that carried the file, documents
+    ahead of the text and images and videos behind it — an order Welt keeps
+    for readability, since Converse accepts any.
     Documents sharing a name are renamed apart, because Converse rejects a
     request whose messages carry two documents under one name — a thread
     where the same file name is uploaded twice would otherwise fail.
@@ -244,19 +249,57 @@ def _reply_to_message(
     bot_user_id: str | None,
     file_blocks_by_id: dict[str, ContentBlock],
 ) -> Message | None:
-    text = remove_bot_mention(_text_of(reply), bot_user_id)
-    text = unescape_slack_formatting(text)
-    text = slack_to_markdown(text)
-    if bot_user_id is not None and reply.get("user") == bot_user_id:
-        if not text.strip():
-            return None
+    text = _cleaned_text(reply, bot_user_id)
+    if _is_assistant_reply(reply, bot_user_id):
         return {"role": "assistant", "content": [{"text": text}]}
+    if bot_user_id is not None and reply.get("user") == bot_user_id:
+        return None
     document_blocks, media_blocks = _file_blocks_of(reply, file_blocks_by_id)
     text_block: TextBlock = {"text": build_slack_user_prefixed_text(reply, text)}
     return {
         "role": "user",
         "content": [*document_blocks, text_block, *media_blocks],
     }
+
+
+def _cleaned_text(reply: dict, bot_user_id: str | None) -> str:
+    return slack_to_markdown(
+        unescape_slack_formatting(remove_bot_mention(_text_of(reply), bot_user_id))
+    )
+
+
+def _is_assistant_reply(reply: dict, bot_user_id: str | None) -> bool:
+    """Tell whether a reply is one of Welt's own, with something in it."""
+    if bot_user_id is None or reply.get("user") != bot_user_id:
+        return False
+    return bool(_cleaned_text(reply, bot_user_id).strip())
+
+
+def keep_replies_after_last_bot_reply(
+    replies: list[dict], *, bot_user_id: str | None
+) -> list[dict]:
+    """
+    Keep the replies that follow Welt's own last reply.
+
+    The reply-level twin of `keep_messages_after_last_assistant`, deciding
+    the same cut before the messages exist — and before the files they
+    carry have been downloaded. It reads a reply as one of Welt's through
+    the same test `build_messages` applies, so the two agree by
+    construction rather than by resemblance.
+
+    Args:
+        replies (list[dict]): Slack replies in chronological order.
+        bot_user_id (str | None): The bot's own user ID.
+
+    Returns:
+        list[dict]: The replies after the last of Welt's own, or all of
+            them when it has not replied in this thread yet.
+    """
+    kept = _drop_surrounding_bot_replies(replies, bot_user_id)
+    for index in range(len(kept) - 1, -1, -1):
+        if _is_assistant_reply(kept[index], bot_user_id):
+            return kept[index + 1 :]
+    return kept
 
 
 def _file_blocks_of(

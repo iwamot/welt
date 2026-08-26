@@ -9,6 +9,7 @@ from app.converse_logic import (
     build_messages,
     build_video_block,
     keep_messages_after_last_assistant,
+    keep_replies_after_last_bot_reply,
     sanitize_document_name,
 )
 
@@ -241,6 +242,22 @@ def test_file_blocks_attached_documents_before_text_media_after():
     ]
 
 
+def test_document_reply_without_text_still_carries_a_text_block():
+    # Converse refuses a message that holds a document and no text ("A text
+    # block must be included when using documents"), so the attribution
+    # prefix has to survive even a reply that said nothing at all.
+    document_block = build_document_block(
+        document_format="pdf", name="doc", data_base64="DOC"
+    )
+    replies = [{"user": "U1", "text": "", "files": [{"id": "F_DOC"}]}]
+
+    result = _build(replies, file_blocks_by_id={"F_DOC": document_block})
+
+    assert result == [
+        {"role": "user", "content": [document_block, {"text": "<@U1>: "}]}
+    ]
+
+
 def test_reply_with_file_but_empty_text_is_kept():
     image_block = build_image_block(image_format="png", data_base64="IMG")
     replies = [{"user": "U1", "text": "<@U_BOT>", "files": [{"id": "F1"}]}]
@@ -367,3 +384,61 @@ def test_conversation_ending_with_assistant_keeps_nothing():
     ]
 
     assert keep_messages_after_last_assistant(messages) == []
+
+
+# --- keep_replies_after_last_bot_reply ---------------------------------------
+
+
+def _kept(replies: list[dict]) -> list[str]:
+    return [
+        r["text"]
+        for r in keep_replies_after_last_bot_reply(replies, bot_user_id="U_BOT")
+    ]
+
+
+def test_replies_after_welts_last_reply_are_kept():
+    replies = [
+        {"user": "U1", "text": "first"},
+        {"user": "U_BOT", "text": "answer"},
+        {"user": "U1", "text": "second"},
+        {"user": "U2", "text": "third"},
+    ]
+
+    assert _kept(replies) == ["second", "third"]
+
+
+def test_a_thread_welt_has_not_answered_keeps_everything():
+    replies = [{"user": "U1", "text": "first"}, {"user": "U2", "text": "second"}]
+
+    assert _kept(replies) == ["first", "second"]
+
+
+def test_an_empty_bot_reply_is_not_the_cut():
+    # build_messages skips a bot reply with no text, so it never becomes an
+    # assistant message and must not be read as one here either. It stays in
+    # the kept replies, where build_messages skips it as it always would.
+    replies = [
+        {"user": "U1", "text": "first"},
+        {"user": "U_BOT", "text": "answer"},
+        {"user": "U1", "text": "second"},
+        {"user": "U_BOT", "text": "   "},
+        {"user": "U1", "text": "third"},
+    ]
+
+    assert _kept(replies) == ["second", "   ", "third"]
+    assert _build(keep_replies_after_last_bot_reply(replies, bot_user_id="U_BOT")) == (
+        keep_messages_after_last_assistant(_build(replies))
+    )
+
+
+def test_the_cut_agrees_with_the_message_level_trim():
+    replies = [
+        {"user": "U1", "text": "first"},
+        {"user": "U_BOT", "text": "answer"},
+        {"user": "U1", "text": "second"},
+    ]
+
+    by_reply = keep_replies_after_last_bot_reply(replies, bot_user_id="U_BOT")
+    by_message = keep_messages_after_last_assistant(_build(replies))
+
+    assert _build(by_reply) == by_message
