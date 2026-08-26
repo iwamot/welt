@@ -41,7 +41,6 @@ def test_overrides_are_applied():
             "SLACK_STREAM_BUFFER_SIZE": "1024",
             "FILE_INPUT_MODALITIES": "image,document",
             "AGENT_MANAGES_HISTORY": "true",
-            "AGENT_QUALIFIER": "prod",
         }
     )
 
@@ -50,7 +49,6 @@ def test_overrides_are_applied():
     assert result.slack_stream_buffer_size == 1024
     assert result.file_input_modalities == ("image", "document")
     assert result.agent_manages_history is True
-    assert result.agent_qualifier == "prod"
 
 
 def test_missing_bot_token_is_rejected():
@@ -93,36 +91,6 @@ def test_local_mode_keeps_runtime_only_settings():
     assert result.boot_warnings == ()
 
 
-def test_local_mode_ignores_the_qualifier_with_a_warning():
-    environ = {"SLACK_BOT_TOKEN": "xoxb-test", "AGENT_QUALIFIER": "prod"}
-
-    result = load_env(environ)
-
-    assert result.agent_qualifier is None
-    assert result.boot_warnings == (
-        (
-            "Ignoring AGENT_QUALIFIER: AGENT_ARN is not set, and the local "
-            "agent has no endpoints to select"
-        ),
-    )
-
-
-def test_empty_qualifier_boots_quietly_in_local_mode():
-    result = load_env({"SLACK_BOT_TOKEN": "xoxb-test", "AGENT_QUALIFIER": ""})
-
-    assert result.agent_qualifier is None
-    assert result.boot_warnings == ()
-
-
-def test_harness_arn_keeps_the_qualifier():
-    environ = {**_REQUIRED, "AGENT_ARN": _HARNESS_ARN, "AGENT_QUALIFIER": "prod"}
-
-    result = load_env(environ)
-
-    assert result.agent_qualifier == "prod"
-    assert result.boot_warnings == ()
-
-
 def test_harness_endpoint_arn_becomes_harness_arn_and_qualifier():
     environ = {**_REQUIRED, "AGENT_ARN": f"{_HARNESS_ARN}/harness-endpoint/prod"}
 
@@ -135,45 +103,15 @@ def test_harness_endpoint_arn_becomes_harness_arn_and_qualifier():
     assert result.boot_warnings == ()
 
 
-def test_harness_endpoint_arn_agrees_with_a_matching_qualifier():
-    environ = {
-        **_REQUIRED,
-        "AGENT_ARN": f"{_HARNESS_ARN}/harness-endpoint/prod",
-        "AGENT_QUALIFIER": "prod",
-    }
-
-    result = load_env(environ)
-
-    assert result.agent_qualifier == "prod"
-    assert result.boot_warnings == ()
-
-
-def test_harness_endpoint_arn_overrides_a_different_qualifier_with_a_warning():
-    environ = {
-        **_REQUIRED,
-        "AGENT_ARN": f"{_HARNESS_ARN}/harness-endpoint/prod",
-        "AGENT_QUALIFIER": "staging",
-    }
-
-    result = load_env(environ)
-
-    assert result.agent_arn == _HARNESS_ARN
-    assert result.agent_qualifier == "prod"
-    assert result.boot_warnings == (
-        (
-            "Ignoring AGENT_QUALIFIER: AGENT_ARN is a harness endpoint ARN, "
-            "which already names the endpoint 'prod'"
-        ),
-    )
-
-
-def test_runtime_endpoint_arn_is_passed_through_unchanged():
+def test_runtime_endpoint_arn_becomes_runtime_arn_and_qualifier():
     arn = f"{_RUNTIME_ARN}/runtime-endpoint/prod"
 
     result = load_env({**_REQUIRED, "AGENT_ARN": arn})
 
-    assert result.agent_arn == arn
-    assert result.agent_qualifier is None
+    assert result.agent_arn == _RUNTIME_ARN
+    assert result.agent_qualifier == "prod"
+    assert result.agent_region == "us-west-2"
+    assert result.boot_warnings == ()
 
 
 def test_arn_without_region_is_rejected():
@@ -278,3 +216,13 @@ def test_non_boolean_agent_manages_history_is_rejected():
 
     with pytest.raises(ValueError, match="AGENT_MANAGES_HISTORY must be"):
         load_env(environ)
+
+
+def test_an_arn_naming_no_endpoint_sends_no_qualifier():
+    runtime = load_env({**_REQUIRED, "AGENT_ARN": _RUNTIME_ARN})
+    harness = load_env({**_REQUIRED, "AGENT_ARN": _HARNESS_ARN})
+
+    assert runtime.agent_qualifier is None
+    assert harness.agent_qualifier is None
+    assert runtime.boot_warnings == ()
+    assert harness.boot_warnings == ()

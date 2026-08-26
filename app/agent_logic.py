@@ -102,29 +102,31 @@ def build_qualifier_kwargs(qualifier: str | None) -> dict[str, str]:
     return {} if qualifier is None else {"qualifier": qualifier}
 
 
-def split_harness_endpoint(arn: str) -> tuple[str, str | None]:
+def split_endpoint_arn(arn: str) -> tuple[str, str | None]:
     """
-    Split a harness endpoint ARN into the harness ARN and the endpoint name.
+    Split an endpoint ARN into the resource ARN and the endpoint name.
 
-    The console shows a harness under two ARNs: its own
-    (`...:harness/<id>`) and its endpoint's
-    (`...:harness/<id>/harness-endpoint/<name>`). InvokeHarness takes only
-    the former and names the endpoint through its `qualifier` argument, so
-    a configured endpoint ARN is split into the two. (InvokeAgentRuntime
-    accepts a runtime endpoint ARN as it is, so runtime ARNs are not
-    split.)
+    The console shows both resource kinds under two ARNs: their own
+    (`...:harness/<id>`, `...:runtime/<id>`) and their endpoint's
+    (`.../harness-endpoint/<name>`, `.../runtime-endpoint/<name>`).
+    Neither invoke API takes the endpoint ARN — InvokeHarness and
+    InvokeAgentRuntime name the endpoint through their `qualifier`
+    argument instead, and an endpoint ARN passed as the resource is
+    rejected as a resource that does not exist — so a configured endpoint
+    ARN is split into the two.
 
     Args:
-        arn (str): A harness ARN, with or without an endpoint.
+        arn (str): A harness or runtime ARN, with or without an endpoint.
 
     Returns:
-        tuple[str, str | None]: The harness ARN and the endpoint name, or
+        tuple[str, str | None]: The resource ARN and the endpoint name, or
             the ARN unchanged and None when it names no endpoint.
     """
-    harness_arn, sep, endpoint = arn.partition("/harness-endpoint/")
-    if not sep or not endpoint:
-        return arn, None
-    return harness_arn, endpoint
+    for separator in ("/harness-endpoint/", "/runtime-endpoint/"):
+        resource_arn, sep, endpoint = arn.partition(separator)
+        if sep and endpoint:
+            return resource_arn, endpoint
+    return arn, None
 
 
 def is_harness_arn(arn: str) -> bool:

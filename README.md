@@ -113,9 +113,8 @@ Optional environment variables, all with working defaults:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_ARN` | (unset) | The AgentCore Runtime agent — or managed harness — to invoke. Unset is local mode, for development: Welt invokes the agent at `http://localhost:8080` instead. |
+| `AGENT_ARN` | (unset) | The AgentCore Runtime agent — or managed harness — to invoke, as its own ARN or as one of its endpoints' (`.../runtime-endpoint/<name>`, `.../harness-endpoint/<name>`); an endpoint ARN selects that endpoint, and an ARN naming none invokes the `DEFAULT` endpoint. Unset is local mode, for development: Welt invokes the agent at `http://localhost:8080` instead. |
 | `AGENT_MANAGES_HISTORY` | `false` | What Welt sends per turn: the full thread history (`false`), or only the new messages (`true`). |
-| `AGENT_QUALIFIER` | (unset) | The endpoint to invoke on `AGENT_ARN`, which pins Welt to the agent version that endpoint targets. Unset invokes the `DEFAULT` endpoint. Ignored in local mode, with a startup warning. |
 | `FILE_INPUT_MODALITIES` | (unset) | Comma-separated modalities to accept from Slack uploads; unset disables file input. See [Files](docs/files.md). |
 | `LOG_LEVEL` | `INFO` | Logging level for Welt's own loggers. |
 | `DEPS_LOG_LEVEL` | `INFO` | Logging level for dependency libraries (botocore, slack_bolt, ...). Separate from `LOG_LEVEL` because botocore logs credential material at `DEBUG`. |

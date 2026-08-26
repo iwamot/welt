@@ -4,7 +4,7 @@ A managed harness is an agent AgentCore runs for you — a model, a system promp
 
 To chat with a harness, set Welt's `AGENT_ARN` to the harness ARN instead of a runtime agent ARN — everything else works the same.
 
-The console shows a harness under its own ARN and under its endpoint's (`.../harness-endpoint/<name>`); either works, and the endpoint ARN selects that endpoint, the way `AGENT_QUALIFIER` does. The identity Welt runs as needs `bedrock-agentcore:InvokeHarness` on the harness ARN (the Lambda template grants it).
+The console shows a harness under its own ARN and under its endpoint's (`.../harness-endpoint/<name>`); either works, and the endpoint ARN selects that endpoint. The identity Welt runs as needs `bedrock-agentcore:InvokeHarness` on the harness ARN (the Lambda template grants it).
 
 However, three things work differently from a runtime agent:
 
