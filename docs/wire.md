@@ -28,7 +28,7 @@ Welt keys each Slack thread to one AgentCore session and passes the verified cal
 - **runtimeSessionId** — `slack_<team>_<channel>_<thread-ts>`, the timestamp's dot flattened to `-`, `_`-padded to the 33-character minimum. One thread (in channels and DMs alike) is one conversation, so an agent using AgentCore Memory continues the right one.
 - **runtimeUserId** — `slack:<team>:<user>`, the Slack user Welt has verified. The agent may trust it — for example as a Memory actor key — as long as only Welt's IAM role can invoke it. Local mode sends no user id; the SDK's local server has no header for it.
 
-The session id is also the correlation key across the boundary: it appears in Welt's own log lines, and AgentCore Observability keys its traces by the same value, so a Slack thread and the agent's trace join without a separate identifier.
+The session id is also the correlation key across the boundary: it appears in Welt's own log lines, and AgentCore Observability carries it as the `session.id` attribute on the `InvokeAgentRuntime` span (and as `session_id` in the application logs), so a Slack thread and the agent's trace join without a separate identifier.
 
 ## Request payload
 
@@ -57,7 +57,7 @@ The value is the conversation as [Bedrock Converse-shaped messages](https://docs
 - **Attribution** — each `user` text is prefixed with the speaker's mention (`<@U0123456>: `), so the model can attribute turns in a multi-party thread.
 - **History** — by default the payload carries the whole thread. When the agent keeps its own history (the operator sets `AGENT_MANAGES_HISTORY`), it carries only the messages after Welt's last reply — the ones the agent has not seen.
 
-Slack uploads arrive as Converse `image` / `document` / `video` content blocks inside the `user` message of the reply that carried them — documents before the text block, images and videos after it (Converse rejects some block orders). JSON cannot carry raw bytes, so each block's `source.bytes` slot holds a **base64 string**, and getting it back to bytes before the model sees it is the agent side's job — whether the adapter decodes it, or hands the string to a framework whose own content shape takes base64:
+Slack uploads arrive as Converse `image` / `document` / `video` content blocks inside the `user` message of the reply that carried them — documents before the text block, images and videos after it. That order is Welt's own; Converse accepts any. What it does require is that a message carrying a document carry a text block as well, which the attribution prefix above keeps there. JSON cannot carry raw bytes, so each block's `source.bytes` slot holds a **base64 string**, and getting it back to bytes before the model sees it is the agent side's job — whether the adapter decodes it, or hands the string to a framework whose own content shape takes base64:
 
 ```json
 {"image": {"format": "png", "source": {"bytes": "<base64>"}}}
@@ -195,15 +195,19 @@ Read the `data:` lines for what the events carry beyond what Welt reads. Extra f
 
 ## Limits
 
-Inbound, the embedded file blocks stay within the Converse limits — Welt never sends more than:
+Inbound, Welt never embeds more than this per conversation:
 
-| Modality | Files per conversation | Per-file size |
-|---|---|---|
-| `image` | 20 | 3.75 MB |
-| `document` | 5 | 4.5 MB |
-| `video` | 1 | 18.75 MB |
+| Modality | Files | Per-file size | Enforced by |
+|---|---|---|---|
+| `image` | 20 | 3,932,160 bytes | the model — Anthropic's is the strictest, capping the base64 form at 5 MiB. Converse checks neither the count nor the size, so the count is Welt's own stopping point |
+| `document` | 5 | 4,500,000 bytes | Converse, on both. `4.5 MB` here means 4,500,000, not 4.5 MiB |
+| `video` | 1 | 18,750,000 bytes | Nova, the only family that reads video, capping the base64 form at 25,000,000 |
 
-Outbound, a `file` event travels as one streamed chunk, and AgentCore Runtime caps a response chunk at **10 MB** — going over kills the stream. With base64's 4/3 growth, the practical ceiling is roughly **7 MB** of raw file, and there is no slicing protocol; for anything bigger, put the file somewhere else (for example S3) and reply with a link instead.
+One payload as a whole stays under **30,000,000 bytes**, text and encoded files together. Converse refuses a request whose body passes 32,000,000 — the same boundary on both model families — and the distance is deliberate rather than a margin for error: a thread carrying this much already takes long enough to send that the last two megabytes buy nothing. A thread over the budget is trimmed from its oldest end, an attachment at a time: the oldest message gives up its last attachment, then the rest of them backwards, then itself, and only then does the next-oldest message give up anything. What a thread loses first is old pictures, not what anyone said, and what a message loses first is what was attached to it last. The newest message is never dropped, and nothing is announced in the thread.
+
+The three per-file ceilings are quoted in bytes because the three sources count in three different units. Every number here was measured on 2026-08-26 through Converse, against `nova-lite` and `claude-haiku-4-5`. An agent that reaches its model through some other API meets that API's ceilings instead: Bedrock's OpenAI-compatible endpoint, measured the same day, refuses a request past about 32 MiB, which leaves the budget above clear of both. A model outside those families, or an API neither of these covers, may be stricter, and its refusal arrives in the thread as an `error` event rather than as anything Welt could have withheld. None of these is a promise the next one keeps.
+
+Outbound, a `file` event travels as one streamed chunk, and AgentCore Runtime caps a response chunk at **10 MB** — going over kills the stream. That figure is AgentCore's published quota rather than something measured here, and the page it comes from counts a megabyte as a million bytes: its 100 MB request payload is the 100,000,000 the API model states. With base64's 4/3 growth, the practical ceiling is roughly **7 MB** of raw file, and there is no slicing protocol; for anything bigger, put the file somewhere else (for example S3) and reply with a link instead.
 
 ## Versioning
 

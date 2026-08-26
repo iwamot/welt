@@ -785,6 +785,42 @@ def test_pressed_row_becomes_a_receipt_with_the_presser():
     assert updated[3] == blocks[3]
 
 
+def test_a_field_receipt_renders_an_answer_that_is_not_text():
+    # A text field submits text, so this is the receipt saying what it would
+    # show for anything else rather than a claim that a field could send it.
+    # `ensure_ascii=False` keeps the rendering readable to the people in the
+    # thread, unlike the wire payload, which travels escaped.
+    blocks = [
+        {
+            "type": "input",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "welt_interrupt_0_input",
+            },
+            "label": {"type": "plain_text", "text": "Answer"},
+        }
+    ]
+
+    updated = replace_answered_blocks(
+        blocks,
+        action_id="welt_interrupt_0_input",
+        presser_name="Takashi Iwamoto",
+        answer={"picked": "日本語"},
+    )
+
+    assert updated == [
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "plain_text",
+                    "text": '“{"picked": "日本語"}” — answered by Takashi Iwamoto',
+                }
+            ],
+        }
+    ]
+
+
 def test_replacement_without_the_pressed_button_returns_none():
     blocks = [
         {"type": "actions", "elements": [_button("welt_interrupt_0_0", "Go")]},

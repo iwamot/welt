@@ -24,7 +24,7 @@ The setup below assumes you already have an agent on AgentCore Runtime, or a [ma
 
    - The stack parameters are `SlackBotToken` and `SlackSigningSecret` from step 1, and `AgentArn`.
    - Answer `y` to `Allow SAM CLI IAM role creation` — the template creates the function's role.
-   - Answer `y` to `WeltFunction Function Url has no authentication` — Slack requests are verified with the signing secret instead.
+   - Answer `y` to `WeltFunction Function Url has no authentication. Is this okay?` — it defaults to no, and Slack requests are verified with the signing secret instead.
    - Note the `FunctionUrl` stack output; the next step needs it.
 
 3. In the Slack app manifest, edit the `settings:` section: add a `request_url` with the `FunctionUrl` output under `event_subscriptions` and again under `interactivity`, so events and button presses arrive at the function, then set `socket_mode_enabled` to `false`:

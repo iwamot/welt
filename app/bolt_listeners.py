@@ -33,7 +33,11 @@ from app.bolt_logic import (
     is_post_mentioned,
     keep_newest_replies,
 )
-from app.converse_logic import ContentBlock, build_messages
+from app.converse_logic import (
+    ContentBlock,
+    build_messages,
+    keep_replies_after_last_bot_reply,
+)
 from app.env import Env
 from app.interrupt_logic import (
     append_context_notice,
@@ -49,9 +53,11 @@ from app.interrupt_logic import (
     replace_answered_blocks,
 )
 from app.message_logic import build_tool_use_task_chunk
+from app.payload_logic import MAX_PAYLOAD_BYTES, compact_to_payload_budget
 from app.slack_file_logic import (
     MAX_BYTES_BY_MODALITY,
     MAX_SLOTS_BY_MODALITY,
+    FileToFetch,
     Modality,
     select_files_to_fetch,
 )
@@ -147,9 +153,22 @@ async def respond_to_new_post(
             channel_id=context.channel_id,
             user_id=user_id,
         )
-        file_blocks = await fetch_file_blocks_for_replies(
+        # An agent holding its own history is sent only the replies after
+        # Welt's last one. Cutting to them here rather than on the messages
+        # further down keeps the files on the earlier replies from being
+        # downloaded to be dropped, and leaves the budget below counting
+        # what the payload will actually carry.
+        if env.agent_manages_history:
+            replies = keep_replies_after_last_bot_reply(
+                replies, bot_user_id=context.bot_user_id
+            )
+        selections = select_files_for_replies(
             context, replies, allowed_modalities=env.file_input_modalities
         )
+        replies, selections = compact_to_payload_budget(
+            replies, selections, max_payload_bytes=MAX_PAYLOAD_BYTES
+        )
+        file_blocks = await fetch_file_blocks_for_selections(context, selections)
         messages = build_messages(
             replies,
             bot_user_id=context.bot_user_id,
@@ -327,14 +346,17 @@ async def get_thread_replies(
     return keep_newest_replies(replies, max_count=MAX_THREAD_REPLIES)
 
 
-async def fetch_file_blocks_for_replies(
+def select_files_for_replies(
     context: BaseContext,
     replies: list[dict],
     *,
     allowed_modalities: tuple[Modality, ...],
-) -> dict[str, ContentBlock]:
+) -> list[FileToFetch]:
     """
-    Download the files the replies carry, if file input is enabled.
+    Choose the files the replies carry, if file input is enabled.
+
+    Nothing is downloaded here: the thread is still to be trimmed to one
+    payload, and a file that does not survive that is never fetched.
 
     Args:
         context (BaseContext): The Bolt context object.
@@ -343,19 +365,34 @@ async def fetch_file_blocks_for_replies(
             (`Env.file_input_modalities`); empty disables file input.
 
     Returns:
-        dict[str, ContentBlock]: Content blocks keyed by Slack file ID.
+        list[FileToFetch]: The eligible files.
     """
     if not allowed_modalities:
-        return {}
+        return []
     if not has_read_files_scope(context.authorize_result):
-        return {}
-    selections = select_files_to_fetch(
+        return []
+    return select_files_to_fetch(
         replies,
         bot_user_id=context.bot_user_id,
         allowed_modalities=allowed_modalities,
         max_slots_by_modality=MAX_SLOTS_BY_MODALITY,
         max_bytes_by_modality=MAX_BYTES_BY_MODALITY,
     )
+
+
+async def fetch_file_blocks_for_selections(
+    context: BaseContext, selections: list[FileToFetch]
+) -> dict[str, ContentBlock]:
+    """
+    Download the selected files.
+
+    Args:
+        context (BaseContext): The Bolt context object.
+        selections (list[FileToFetch]): The files that survived the trim.
+
+    Returns:
+        dict[str, ContentBlock]: Content blocks keyed by Slack file ID.
+    """
     if not selections:
         return {}
     if context.bot_token is None:
