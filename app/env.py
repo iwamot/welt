@@ -78,7 +78,8 @@ def load_env(environ: Mapping[str, str]) -> Env:
     An unset (or empty, like the other optional variables) AGENT_ARN is
     local mode: the agent runs on this machine instead of AgentCore, so no
     ARN exists to configure. A forgotten AGENT_ARN thus boots into local
-    mode — the startup check on the local agent is what catches it.
+    mode, which nothing here refuses; `agent_service.log_local_mode` names
+    the target URL in the log instead.
 
     AGENT_ARN carries the endpoint too: an ARN that names one
     (`.../runtime-endpoint/<name>`, `.../harness-endpoint/<name>`) is split
