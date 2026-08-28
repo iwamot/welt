@@ -15,7 +15,7 @@ answered. All classification and formatting is delegated to the pure
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 
 from slack_bolt.context.base_context import BaseContext
 from slack_sdk.errors import SlackApiError
@@ -36,6 +36,7 @@ from app.bolt_logic import (
 from app.converse_logic import (
     ContentBlock,
     build_messages,
+    collect_user_ids,
     keep_replies_after_last_bot_reply,
 )
 from app.env import Env
@@ -165,14 +166,24 @@ async def respond_to_new_post(
         selections = select_files_for_replies(
             context, replies, allowed_modalities=env.file_input_modalities
         )
+        # Names are read before the thread is trimmed, so what the budget
+        # counts is the text the payload will carry.
+        display_names = await fetch_display_names(
+            client, collect_user_ids(replies, bot_user_id=context.bot_user_id)
+        )
         replies, selections = compact_to_payload_budget(
-            replies, selections, max_payload_bytes=MAX_PAYLOAD_BYTES
+            replies,
+            selections,
+            bot_user_id=context.bot_user_id,
+            display_names=display_names,
+            max_payload_bytes=MAX_PAYLOAD_BYTES,
         )
         file_blocks = await fetch_file_blocks_for_selections(context, selections)
         messages = build_messages(
             replies,
             bot_user_id=context.bot_user_id,
             file_blocks_by_id=file_blocks,
+            display_names=display_names,
         )
         events = stream_agent_events(
             agent_arn=env.agent_arn,
@@ -294,7 +305,9 @@ async def get_replies(
 
     One thread is one conversation: a post inside a thread brings the whole
     thread as history, and a post outside a thread (channel mention or a new
-    DM message) starts a new conversation from that post alone.
+    DM message) starts a new conversation from that post alone — carried
+    with the blocks and attachments the event brought, so that the post
+    reads the same whether it is the conversation or the first line of one.
 
     Args:
         client (AsyncWebClient): The Slack Web API client.
@@ -311,6 +324,8 @@ async def get_replies(
     return [
         {
             "text": payload["text"],
+            "blocks": payload.get("blocks"),
+            "attachments": payload.get("attachments"),
             "user": user_id,
             "bot_id": payload.get("bot_id"),
             "files": payload.get("files"),
@@ -378,6 +393,55 @@ def select_files_for_replies(
         max_slots_by_modality=MAX_SLOTS_BY_MODALITY,
         max_bytes_by_modality=MAX_BYTES_BY_MODALITY,
     )
+
+
+# Slack IDs to the names their profiles show, kept for as long as the process
+# lives. A name is read once and used for every thread after: a workspace's
+# names change rarely, and the reply path is no place to keep asking. A
+# thousand of them come to about 130 KiB (measured 2026-08-29).
+_display_names: dict[str, str] = {}
+
+# Whether names can be read at all. An installation without users:read says
+# so on the first attempt, and is not asked again.
+_names_readable = True
+
+
+async def fetch_display_names(
+    client: AsyncWebClient, user_ids: Collection[str]
+) -> dict[str, str]:
+    """
+    Look up what a thread's people and apps are called.
+
+    A thread shows names, not IDs, so the conversation the agent is given
+    says the same. Whoever cannot be looked up is left out, and their ID
+    travels as it was: a name is worth a call, never a failed reply.
+
+    Args:
+        client (AsyncWebClient): The Slack Web API client.
+        user_ids (Collection[str]): The Slack IDs the conversation mentions.
+
+    Returns:
+        dict[str, str]: Names by Slack ID, for those that have one.
+    """
+    global _names_readable
+    for user_id in [uid for uid in user_ids if uid not in _display_names]:
+        if not _names_readable:
+            break
+        try:
+            profile = (await client.users_info(user=user_id))["user"]["profile"]
+        except SlackApiError as error:
+            # Without users:read there is nothing to come back for; asking
+            # again every turn would only spend a round trip per speaker.
+            _names_readable = error.response.get("error") != "missing_scope"
+            logger.debug("Failed to look up %s", user_id, exc_info=True)
+            continue
+        except Exception:
+            logger.debug("Failed to look up %s", user_id, exc_info=True)
+            continue
+        name = profile.get("display_name") or profile.get("real_name")
+        if isinstance(name, str) and name:
+            _display_names[user_id] = name
+    return {uid: _display_names[uid] for uid in user_ids if uid in _display_names}
 
 
 async def fetch_file_blocks_for_selections(

@@ -83,6 +83,7 @@ Bodies — the structured `message` and the plain-string reason — render as st
 - **Double answers**: an answered question loses its widgets, so it cannot be answered twice. A duplicate that slips in before the widgets retire (a double press, or a double Enter in the text field) resumes nothing and puts the resume notice under the questions; the first answer's reply still arrives. Answers landing at the same instant on different questions can rarely lose one; its widgets stay visible, so just answer again.
 - **Expiry**: Welt sets no deadline — an answer always just attempts the resume, and when the run can no longer continue, a notice appears under the questions. How long a run stays resumable is between the agent and its runtime.
 - **Notifications**: the question message carries a fixed plain-text summary that notifications and screen readers show in place of the blocks.
+- **History**: the next turn's history carries the question and the answer it was given, read from the message as the thread shows it — so the agent can say what it asked and what was decided.
 
 ## Limitations
 

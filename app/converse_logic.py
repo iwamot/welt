@@ -15,13 +15,14 @@ thread.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Literal, TypedDict, TypeGuard
 
-from app.message_logic import (
-    build_slack_user_prefixed_text,
-    remove_bot_mention,
-    slack_to_markdown,
-    unescape_slack_formatting,
+from app.message_logic import build_slack_user_prefixed_text
+from app.slack_markdown_logic import (
+    attachments_to_markdown,
+    blocks_to_markdown,
+    mrkdwn_to_markdown,
 )
 
 
@@ -90,28 +91,44 @@ class Message(TypedDict):
 # The longest document name Converse accepts.
 DOCUMENT_NAME_MAX_LENGTH = 200
 
+# A mention of a person or an app, as a message carries it. What Slack
+# writes for a user group (`<!subteam^S0123>`), for a broadcast (`<!here>`)
+# and for a channel (`<#C0123>`) is left as it came: each of those says on
+# its own what it points at, where an ID says nothing without a lookup.
+_MENTION = re.compile(r"<@([UW][A-Z0-9]{2,})>")
+
 
 def build_messages(
     replies: list[dict],
     *,
     bot_user_id: str | None,
     file_blocks_by_id: dict[str, ContentBlock] | None = None,
+    display_names: Mapping[str, str] | None = None,
 ) -> list[Message]:
     """
     Convert Slack replies (chronological order) into Converse-shaped messages.
+
+    A reply is read from its blocks where it has any and from its text
+    where it has none, whoever sent it. Blocks are the message as the
+    thread shows it — what Welt streamed as Markdown, what another app
+    assembled, what a person composed — while the `text` beside them is a
+    summary Slack writes, which flattens headings into the paragraph
+    below, drops tables outright, and appends a notice of its own where the
+    message holds a widget. A message with no blocks is one posted as text,
+    and then its text is all there is.
 
     Trailing bot replies (e.g. a stale loading message) are dropped, and so are
     leading ones (left behind when an overlong thread is truncated to its
     newest replies) so the conversation starts with something a person said
     rather than mid-answer. Nova enforces the same shape, refusing a
     conversation that opens on an assistant message, where Anthropic's
-    models take one. Bot replies whose text is empty after cleaning are skipped
-    so no blank content block is sent; bot replies with text become
-    `assistant` messages. Everyone else becomes a `user` message prefixed with
-    their mention so the model can attribute turns — always, even when the
-    text is empty after cleaning (e.g. a mention-only call): the prefix keeps
-    the text block non-blank for Converse, and the model sees who pinged it
-    without saying anything. That text block is also what lets a reply carry a
+    models take one. Welt's replies that say nothing at all are skipped so no
+    blank content block is sent; the rest become `assistant` messages.
+    Everyone else becomes a `user` message prefixed with their name so
+    the model can attribute turns — always, even where the message says
+    nothing (e.g. a mention-only call): the prefix keeps the text block
+    non-blank for Converse, and the model sees who pinged it without
+    saying anything. That text block is also what lets a reply carry a
     document at all: Converse refuses a message holding a document and no
     text ("A text block must be included when using documents"). File blocks
     go on the user message of the reply that carried the file, documents
@@ -126,6 +143,8 @@ def build_messages(
         bot_user_id (str | None): The bot's own user ID.
         file_blocks_by_id (dict[str, ContentBlock] | None): Fetched file
             blocks keyed by Slack file ID.
+        display_names (Mapping[str, str] | None): Names by Slack ID, for
+            the people and apps the thread mentions.
 
     Returns:
         list[Message]: The conversation as Converse-shaped messages.
@@ -136,6 +155,7 @@ def build_messages(
             reply,
             bot_user_id=bot_user_id,
             file_blocks_by_id=file_blocks_by_id or {},
+            display_names=display_names or {},
         )
         if message is not None:
             messages.append(message)
@@ -248,31 +268,178 @@ def _reply_to_message(
     *,
     bot_user_id: str | None,
     file_blocks_by_id: dict[str, ContentBlock],
+    display_names: Mapping[str, str],
 ) -> Message | None:
-    text = _cleaned_text(reply, bot_user_id)
-    if _is_assistant_reply(reply, bot_user_id):
-        return {"role": "assistant", "content": [{"text": text}]}
-    if bot_user_id is not None and reply.get("user") == bot_user_id:
-        return None
+    text = build_reply_text(reply, bot_user_id=bot_user_id, display_names=display_names)
+    if _is_welt_reply(reply, bot_user_id):
+        return {"role": "assistant", "content": [{"text": text}]} if text else None
     document_blocks, media_blocks = _file_blocks_of(reply, file_blocks_by_id)
-    text_block: TextBlock = {"text": build_slack_user_prefixed_text(reply, text)}
+    text_block: TextBlock = {"text": text}
     return {
         "role": "user",
         "content": [*document_blocks, text_block, *media_blocks],
     }
 
 
-def _cleaned_text(reply: dict, bot_user_id: str | None) -> str:
-    return slack_to_markdown(
-        unescape_slack_formatting(remove_bot_mention(_text_of(reply), bot_user_id))
-    )
+def build_reply_text(
+    reply: dict,
+    *,
+    bot_user_id: str | None,
+    display_names: Mapping[str, str] | None = None,
+) -> str:
+    """
+    Say what a reply contributes to the conversation, as Markdown.
+
+    The single reading of a reply's words, so what `payload_logic` counts
+    towards the budget is what `build_messages` goes on to send.
+
+    Args:
+        reply (dict): A Slack reply.
+        bot_user_id (str | None): The bot's own user ID.
+        display_names (Mapping[str, str] | None): Names by Slack ID.
+            Whoever is not in it is named by their ID.
+
+    Returns:
+        str: Welt's own reply as its blocks read, everyone else's as they
+            typed it behind their name. Empty only for a reply of Welt's
+            that says nothing — a `user` message always carries its speaker.
+    """
+    return _named(_said(reply, bot_user_id), display_names or {})
+
+
+def _said(reply: dict, bot_user_id: str | None) -> str:
+    """
+    Say what a reply contributes, with its mentions still in Slack's form.
+
+    What `build_reply_text` reads before it names anyone, and what
+    `collect_user_ids` reads to know who there is to name.
+
+    Args:
+        reply (dict): A Slack reply.
+        bot_user_id (str | None): The bot's own user ID.
+
+    Returns:
+        str: The reply's words, behind its speaker's mention where it has
+            one.
+    """
+    spoken = _with_file_names(reply, _with_attachments(reply, _spoken_markdown(reply)))
+    if _is_welt_reply(reply, bot_user_id):
+        return spoken
+    return build_slack_user_prefixed_text(reply, spoken)
+
+
+def _with_attachments(reply: dict, spoken: str) -> str:
+    """
+    Read what hangs off a message, under what the message says.
+
+    An app puts what it has to say there — a workflow notification carries
+    no blocks and no text at all — and under what a person wrote, Slack
+    puts its own unfurling of any link they pasted. Both are read: both are
+    what the thread shows under the message.
+
+    Args:
+        reply (dict): A Slack reply.
+        spoken (str): What the reply's blocks or text say.
+
+    Returns:
+        str: The reply's words and its attachments'.
+    """
+    attached = attachments_to_markdown(reply.get("attachments"))
+    return "\n\n".join(part for part in (spoken, attached) if part)
+
+
+def _spoken_markdown(reply: dict) -> str:
+    """
+    Read what a reply says as Markdown.
+
+    Blocks come first, and `text` stands in where they carry nothing —
+    a message posted as plain text has no blocks at all, and one whose
+    blocks are all of a shape this reads nothing from would otherwise lose
+    what its sender wrote in `text` beside them.
+
+    Args:
+        reply (dict): A Slack reply.
+
+    Returns:
+        str: What the reply says, empty when it says nothing.
+    """
+    blocks = reply.get("blocks")
+    if isinstance(blocks, list) and blocks:
+        spoken = blocks_to_markdown(blocks).strip()
+        if spoken:
+            return spoken
+    return _cleaned_text(reply).strip()
+
+
+def _with_file_names(reply: dict, spoken: str) -> str:
+    """
+    Name the files a reply shows, under what it said.
+
+    A thread shows a file by name whether or not its bytes are anywhere
+    the model can read them, so the name travels either way: an image a
+    person sent reaches the model as the picture and nothing else, and a
+    file nobody downloaded — one an app uploaded, one of a kind Welt does
+    not take, one too large for the payload — would otherwise not reach it
+    at all.
+
+    Args:
+        reply (dict): A Slack reply.
+        spoken (str): What the reply says.
+
+    Returns:
+        str: The reply's words and the files it shows.
+    """
+    shown = "\n".join(_file_lines(reply))
+    return "\n\n".join(part for part in (spoken, shown) if part)
+
+
+def _file_lines(reply: dict) -> list[str]:
+    """
+    Name the files a reply shows, in the order it shows them.
+
+    A file is shown under its title, which is its file name unless someone
+    gave it one of its own; where the two differ, the thread shows the
+    title and the name is what the file downloads as, so both travel.
+
+    Args:
+        reply (dict): A Slack reply.
+
+    Returns:
+        list[str]: One line per file; a file Slack names in neither field
+            is left out.
+    """
+    files = reply.get("files")
+    if not isinstance(files, list):
+        return []
+    lines = []
+    for file in files:
+        if not isinstance(file, dict):
+            continue
+        name = file.get("name")
+        title = file.get("title")
+        name = name if isinstance(name, str) and name else ""
+        title = title if isinstance(title, str) and title else ""
+        if title and name and title != name:
+            lines.append(f"[file: {title} ({name})]")
+        elif title or name:
+            lines.append(f"[file: {title or name}]")
+    return lines
+
+
+def _cleaned_text(reply: dict) -> str:
+    return mrkdwn_to_markdown(_text_of(reply))
+
+
+def _is_welt_reply(reply: dict, bot_user_id: str | None) -> bool:
+    """Tell whether a reply is one of Welt's own."""
+    return bot_user_id is not None and reply.get("user") == bot_user_id
 
 
 def _is_assistant_reply(reply: dict, bot_user_id: str | None) -> bool:
     """Tell whether a reply is one of Welt's own, with something in it."""
-    if bot_user_id is None or reply.get("user") != bot_user_id:
-        return False
-    return bool(_cleaned_text(reply, bot_user_id).strip())
+    return _is_welt_reply(reply, bot_user_id) and bool(
+        build_reply_text(reply, bot_user_id=bot_user_id)
+    )
 
 
 def keep_replies_after_last_bot_reply(
@@ -421,3 +588,47 @@ def sanitize_document_name(name: str | None) -> str:
     sanitized = re.sub(r"\s+", " ", sanitized).strip()
     sanitized = sanitized[:DOCUMENT_NAME_MAX_LENGTH].strip()
     return sanitized or "document"
+
+
+def collect_user_ids(replies: list[dict], *, bot_user_id: str | None) -> set[str]:
+    """
+    Find the people and apps a thread mentions.
+
+    Read from what each reply will say, so that whoever ends up in the
+    payload is looked up and nobody else is.
+
+    Args:
+        replies (list[dict]): Slack replies in chronological order.
+        bot_user_id (str | None): The bot's own user ID.
+
+    Returns:
+        set[str]: The Slack IDs mentioned anywhere in them — every reply's
+            sender among them, since a reply is prefixed with its own.
+    """
+    found: set[str] = set()
+    for reply in replies:
+        found.update(_MENTION.findall(_said(reply, bot_user_id)))
+    return found
+
+
+def _named(said: str, display_names: Mapping[str, str]) -> str:
+    """
+    Say who a reply names, in words rather than in Slack's mentions.
+
+    A Slack ID means nothing to a model, and a thread shows nobody by one:
+    it shows the names, and so should the conversation the model is given.
+    An ID that resolves to no name is still written as a name — the ID
+    itself — because of the second thing this does.
+
+    It takes the mention syntax off: `<@U0123>` copied out of the history
+    into a reply posts as a real mention and notifies somebody, where
+    `@iwamot` is only ever text.
+
+    Args:
+        said (str): What a reply says.
+        display_names (Mapping[str, str]): Names by Slack ID.
+
+    Returns:
+        str: The same, everyone in it named.
+    """
+    return _MENTION.sub(lambda match: f"@{display_names.get(match[1], match[1])}", said)

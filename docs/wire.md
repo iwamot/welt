@@ -48,13 +48,29 @@ The value is the conversation as [Bedrock Converse-shaped messages](https://docs
 ```json
 {
   "messages": [
-    {"role": "user", "content": [{"text": "<@U0123456>: hello"}]}
+    {"role": "user", "content": [{"text": "@iwamot: hello"}]}
   ]
 }
 ```
 
 - **Roles** — Welt's own earlier replies are `assistant` messages; everything else is a `user` message.
-- **Attribution** — each `user` text is prefixed with the speaker's mention (`<@U0123456>: `), so the model can attribute turns in a multi-party thread.
+- **Attribution** — each `user` text is prefixed with the speaker's name (`@iwamot: `), so the model can attribute turns in a multi-party thread. Whoever a message mentions is named the same way, Welt included: a thread whose parent called Welt runs on every reply, so the mention is what says which of them were addressed to it. Names come from the Slack profiles, and an app is named as the app (`@GitHub`); an ID that resolves to no name is written as the ID (`@U0123456`). Nothing states that a name is the agent's own — what says so is that its turn follows every message naming it. An `assistant` message carries no prefix, so nothing invites the model to write one.
+
+  Only a person's mention is read this way. What Slack writes for a user group (`<!subteam^S0123>`), for a broadcast (`<!here>`) and for a channel (`<#C0123>`) is left as it came: each says on its own what it points at, where an ID says nothing without a lookup.
+- **What a turn says** — the Markdown of the message as the thread shows it, read back from its blocks: headings, tables, quotes and fenced code come back as they were written. What hangs off a message as `attachments` — an app's whole notification, or Slack's unfurling of a link somebody pasted — is read under it, and a message whose blocks and attachments carry no words at all is read from its text instead.
+
+  What the thread shows but does not say is named in brackets, so it does not read as something the sender wrote:
+
+  | | |
+  |---|---|
+  | `[file: chart.png]` | a file the message shows, whether or not its bytes travel as a content block |
+  | `[file: Weekly report (sample.csv)]` | a file given a title of its own, which is what the thread shows over its name |
+  | `[task: Using search]` | what the reply did before answering, as the thread showed it happening (`— error` where it failed); what a tool was given and what it returned the thread does not show, and neither travels |
+  | `[buttons: Publish \| Cancel]` | a question still waiting to be answered; answering removes the widgets |
+  | `[menu: Pick a branch]` | a menu still waiting to be picked from |
+  | `[image: https://…]` | a picture the message shows but does not carry |
+  | `[input: Or say why not]` | a field still waiting to be typed in |
+  | `[context: “Publish” — answered by iwamot]` | the aside Slack draws small and grey under a message — a receipt, a notice |
 - **History** — by default the payload carries the whole thread. When the agent keeps its own history (the operator sets `AGENT_MANAGES_HISTORY`), it carries only the messages after Welt's last reply — the ones the agent has not seen.
 
 Slack uploads arrive as Converse `image` / `document` / `video` content blocks inside the `user` message of the reply that carried them — documents before the text block, images and videos after it. That order is Welt's own; Converse accepts any. What it does require is that a message carrying a document carry a text block as well, which the attribution prefix above keeps there. JSON cannot carry raw bytes, so each block's `source.bytes` slot holds a **base64 string**, and getting it back to bytes before the model sees it is the agent side's job — whether the adapter decodes it, or hands the string to a framework whose own content shape takes base64:

@@ -1,0 +1,555 @@
+{
+  "text": "Heading one Heading two Heading three Plain paragraph with *bold*, _italic_, _underscore italic_, ~strike~, `inline code`,\na <https://example.com|labelled link>, a bare <https://example.com/bare|example.com/bare> URL,\na mention <@U0123456>, a channel <#C0123456>, and an emoji :tada:.\n\n• bullet one\n• bullet two\n    ◦ nested bullet\n        ▪︎ deeper bullet\n• bullet three\n1. ordered one\n2. ordered two\n    a. nested ordered\n1. ordered three\n> a quote line\n> a second quote line\n```def hello() -> str:\n    return \"world\"```\n```fence without a language```\n <https://example.com/image.png|alt text>\n\nFinal paragraph.（インタラクティブ要素あり）",
+  "blocks": [
+    {
+      "type": "header",
+      "block_id": "P6/HbX",
+      "text": {
+        "type": "plain_text",
+        "text": "Heading one",
+        "emoji": true
+      },
+      "level": 1
+    },
+    {
+      "type": "header",
+      "block_id": "hFcCur",
+      "text": {
+        "type": "plain_text",
+        "text": "Heading two",
+        "emoji": true
+      },
+      "level": 2
+    },
+    {
+      "type": "header",
+      "block_id": "cVPavn",
+      "text": {
+        "type": "plain_text",
+        "text": "Heading three",
+        "emoji": true
+      },
+      "level": 3
+    },
+    {
+      "type": "rich_text",
+      "block_id": "HEmniH",
+      "elements": [
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "text",
+              "text": "Plain paragraph with "
+            },
+            {
+              "type": "text",
+              "text": "bold",
+              "style": {
+                "bold": true
+              }
+            },
+            {
+              "type": "text",
+              "text": ", "
+            },
+            {
+              "type": "text",
+              "text": "italic",
+              "style": {
+                "italic": true
+              }
+            },
+            {
+              "type": "text",
+              "text": ", "
+            },
+            {
+              "type": "text",
+              "text": "underscore italic",
+              "style": {
+                "italic": true
+              }
+            },
+            {
+              "type": "text",
+              "text": ", "
+            },
+            {
+              "type": "text",
+              "text": "strike",
+              "style": {
+                "strike": true
+              }
+            },
+            {
+              "type": "text",
+              "text": ", "
+            },
+            {
+              "type": "text",
+              "text": "inline code",
+              "style": {
+                "code": true
+              }
+            },
+            {
+              "type": "text",
+              "text": ","
+            },
+            {
+              "type": "text",
+              "text": "\n"
+            },
+            {
+              "type": "text",
+              "text": "a "
+            },
+            {
+              "type": "link",
+              "url": "https://example.com",
+              "text": "labelled link"
+            },
+            {
+              "type": "text",
+              "text": ", a bare "
+            },
+            {
+              "type": "link",
+              "url": "https://example.com/bare",
+              "text": "example.com/bare",
+              "truncated": true
+            },
+            {
+              "type": "text",
+              "text": " URL,"
+            },
+            {
+              "type": "text",
+              "text": "\n"
+            },
+            {
+              "type": "text",
+              "text": "a mention "
+            },
+            {
+              "type": "user",
+              "user_id": "U0123456"
+            },
+            {
+              "type": "text",
+              "text": ", a channel "
+            },
+            {
+              "type": "channel",
+              "channel_id": "C0123456"
+            },
+            {
+              "type": "text",
+              "text": ", and an emoji "
+            },
+            {
+              "type": "emoji",
+              "name": "tada",
+              "unicode": "1f389"
+            },
+            {
+              "type": "text",
+              "text": "."
+            },
+            {
+              "type": "text",
+              "text": "\n\n"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "bullet one"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "bullet two"
+                }
+              ]
+            }
+          ],
+          "style": "bullet",
+          "indent": 0
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "nested bullet"
+                }
+              ]
+            }
+          ],
+          "style": "bullet",
+          "indent": 1
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "deeper bullet"
+                }
+              ]
+            }
+          ],
+          "style": "bullet",
+          "indent": 2
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "bullet three"
+                }
+              ]
+            }
+          ],
+          "style": "bullet",
+          "indent": 0
+        },
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "text",
+              "text": "\n"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "ordered one"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "ordered two"
+                }
+              ]
+            }
+          ],
+          "style": "ordered",
+          "indent": 0
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "nested ordered"
+                }
+              ]
+            }
+          ],
+          "style": "ordered",
+          "indent": 1
+        },
+        {
+          "type": "rich_text_list",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "ordered three"
+                }
+              ]
+            }
+          ],
+          "style": "ordered",
+          "indent": 0
+        },
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "text",
+              "text": "\n"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_quote",
+          "elements": [
+            {
+              "type": "text",
+              "text": "a quote line"
+            },
+            {
+              "type": "text",
+              "text": "\n"
+            },
+            {
+              "type": "text",
+              "text": "a second quote line"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "text",
+              "text": "\n"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_preformatted",
+          "elements": [
+            {
+              "type": "text",
+              "text": "def hello() -> str:\n    return \"world\""
+            }
+          ],
+          "language": "python"
+        },
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "text",
+              "text": "\n"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_preformatted",
+          "elements": [
+            {
+              "type": "text",
+              "text": "fence without a language"
+            }
+          ]
+        },
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "text",
+              "text": "\n"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "block_id": "cI9r6s",
+      "rows": [
+        [
+          {
+            "type": "rich_text",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "type": "text",
+                    "text": "fruit"
+                  }
+                ]
+              }
+            ],
+            "block_id": "gameR8"
+          },
+          {
+            "type": "rich_text",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "type": "text",
+                    "text": "count"
+                  }
+                ]
+              }
+            ],
+            "block_id": "dWUmXQ"
+          },
+          {
+            "type": "rich_text",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "type": "text",
+                    "text": "note"
+                  }
+                ]
+              }
+            ],
+            "block_id": "4KS4rf"
+          }
+        ],
+        [
+          {
+            "type": "rich_text",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "type": "text",
+                    "text": "りんご"
+                  }
+                ]
+              }
+            ],
+            "block_id": "nJ5K+J"
+          },
+          {
+            "type": "rich_text",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "type": "text",
+                    "text": "3"
+                  }
+                ]
+              }
+            ],
+            "block_id": "ua/P2W"
+          },
+          {
+            "type": "rich_text",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "type": "text",
+                    "text": "日本語セル"
+                  }
+                ]
+              }
+            ],
+            "block_id": "hUF21D"
+          }
+        ],
+        [
+          {
+            "type": "rich_text",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "type": "text",
+                    "text": "banana"
+                  }
+                ]
+              }
+            ],
+            "block_id": "pBWjBT"
+          },
+          {
+            "type": "rich_text",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "type": "text",
+                    "text": "5"
+                  }
+                ]
+              }
+            ],
+            "block_id": "Q/hK8o"
+          },
+          {
+            "type": "rich_text",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "type": "text",
+                    "text": "plain"
+                  }
+                ]
+              }
+            ],
+            "block_id": "s7cgb6"
+          }
+        ]
+      ]
+    },
+    {
+      "type": "divider",
+      "block_id": "HX0ciG"
+    },
+    {
+      "type": "rich_text",
+      "block_id": "I/JWI8",
+      "elements": [
+        {
+          "type": "rich_text_section",
+          "elements": [
+            {
+              "type": "link",
+              "url": "https://example.com/image.png",
+              "text": "alt text"
+            },
+            {
+              "type": "text",
+              "text": "\n\n"
+            },
+            {
+              "type": "text",
+              "text": "Final paragraph."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
