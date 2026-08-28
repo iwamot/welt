@@ -9,12 +9,9 @@ so what it discards is never downloaded.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 
-from app.message_logic import (
-    build_slack_user_prefixed_text,
-    slack_to_markdown,
-    unescape_slack_formatting,
-)
+from app.converse_logic import build_reply_text
 from app.slack_file_logic import FileToFetch
 
 # What Welt lets one payload reach. Converse refuses a request whose whole
@@ -52,37 +49,41 @@ def file_payload_bytes(size: int) -> int:
     return 4 * ((size + 2) // 3) + _FILE_BLOCK_OVERHEAD
 
 
-def reply_payload_bytes(reply: dict) -> int:
+def reply_payload_bytes(
+    reply: dict, *, bot_user_id: str | None, display_names: Mapping[str, str]
+) -> int:
     """
     Say what a reply's text costs the payload.
 
     `json.dumps` is what `agent_service` encodes the payload with, so quoting
     and escaping count as they will travel — a Japanese character leaves as
-    six ASCII bytes, not three. The text goes through the same cleaning
-    `converse_logic` puts it through first, because that cleaning does not
-    only shorten: `*bold*` leaves as `**bold**`, and a reply written mostly
-    in emphasis grows by half again. Only the bot mention's removal is left
-    out, and that one can just take bytes away.
+    six ASCII bytes, not three. The text is the one `converse_logic` will
+    send, because what the payload carries is not what Slack stores: a reply
+    of Welt's own is read back from its blocks, where a table comes back a
+    table and not the summary line Slack left in its `text`, and a person's
+    `*bold*` leaves as `**bold**`, growing a reply written mostly in
+    emphasis by half again.
 
     Args:
         reply (dict): A Slack reply.
+        bot_user_id (str | None): The bot's own user ID.
+        display_names (Mapping[str, str]): Names by Slack ID, so that what
+            is counted is the text as it will be sent — a name is rarely
+            the length of the ID it stands in for.
 
     Returns:
         int: The bytes the reply's message adds to the payload.
     """
-    text = reply.get("text")
-    cleaned = slack_to_markdown(
-        unescape_slack_formatting(text if isinstance(text, str) else "")
-    )
-    return len(json.dumps(build_slack_user_prefixed_text(reply, cleaned))) + (
-        _MESSAGE_OVERHEAD
-    )
+    text = build_reply_text(reply, bot_user_id=bot_user_id, display_names=display_names)
+    return len(json.dumps(text)) + _MESSAGE_OVERHEAD
 
 
 def compact_to_payload_budget(
     replies: list[dict],
     selections: list[FileToFetch],
     *,
+    bot_user_id: str | None,
+    display_names: Mapping[str, str],
     max_payload_bytes: int,
 ) -> tuple[list[dict], list[FileToFetch]]:
     """
@@ -112,6 +113,8 @@ def compact_to_payload_budget(
     Args:
         replies (list[dict]): Slack replies in chronological order.
         selections (list[FileToFetch]): The files eligible for download.
+        bot_user_id (str | None): The bot's own user ID.
+        display_names (Mapping[str, str]): Names by Slack ID.
         max_payload_bytes (int): The ceiling for the whole payload
             (`MAX_PAYLOAD_BYTES`).
 
@@ -122,7 +125,10 @@ def compact_to_payload_budget(
     sizes = _file_sizes_by_id(replies)
     kept_replies = list(replies)
     kept_files = list(selections)
-    total = sum(reply_payload_bytes(reply) for reply in kept_replies) + sum(
+    total = sum(
+        reply_payload_bytes(reply, bot_user_id=bot_user_id, display_names=display_names)
+        for reply in kept_replies
+    ) + sum(
         file_payload_bytes(sizes.get(selection.file_id, 0)) for selection in kept_files
     )
     while total > max_payload_bytes and kept_replies:
@@ -133,7 +139,9 @@ def compact_to_payload_budget(
             continue
         if len(kept_replies) == 1:
             break
-        total -= reply_payload_bytes(oldest)
+        total -= reply_payload_bytes(
+            oldest, bot_user_id=bot_user_id, display_names=display_names
+        )
         kept_replies.pop(0)
     return kept_replies, kept_files
 

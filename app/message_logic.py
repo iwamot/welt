@@ -1,89 +1,18 @@
-"""Pure Slack text-formatting helpers.
+"""Pure helpers for what Welt puts around a Slack message.
 
-These clean incoming Slack text for the agent (mention stripping,
-mrkdwn → Markdown) and build streaming chunks for the reply. Outbound Markdown
-needs no conversion — the chat streaming API renders `markdown_text`
-server-side. They are pure so they can be covered by fixture-driven tests.
+The speaker prefix on the way in, the streaming chunks on the way out.
+Reading what a message shows is
+`slack_markdown_logic`; outbound Markdown needs no conversion at all —
+the chat streaming API renders `markdown_text` server-side.
 """
 
 from __future__ import annotations
 
 import re
 
-
-def remove_bot_mention(text: str, bot_user_id: str | None) -> str:
-    """
-    Remove the bot mention from the text.
-
-    Args:
-        text (str): The input text containing the bot mention.
-        bot_user_id (str | None): The bot's user ID.
-
-    Returns:
-        str: The text with the bot mention removed.
-    """
-    return re.sub(rf"<@{bot_user_id}>\s*", "", text) if bot_user_id else text
-
-
-def unescape_slack_formatting(content: str) -> str:
-    """
-    Unescape Slack formatting characters.
-
-    Unescape &, < and >, since Slack replaces these with their HTML equivalents.
-    See also: https://api.slack.com/reference/surfaces/formatting#escaping
-
-    Args:
-        content (str): The input string containing Slack formatting.
-
-    Returns:
-        str: The unescaped string.
-    """
-    return content.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
-
-
-def slack_to_markdown(content: str) -> str:
-    """
-    Convert Slack mrkdwn to Markdown format.
-
-    Only spans that Slack itself renders as formatting are converted: a marker
-    adjacent to an ASCII letter, digit, or another marker of the same kind is
-    literal text in Slack's renderer, so `snake_case_names` and `2*3*4` pass
-    through unchanged (CJK-adjacent markers do format, matching Slack).
-    See also: https://api.slack.com/reference/surfaces/formatting#basics
-
-    Args:
-        content (str): The input string in Slack mrkdwn format.
-
-    Returns:
-        str: The converted string in Markdown format.
-    """
-    # Split the input string into parts based on code blocks and inline code
-    parts = re.split(r"(?s)(```.+?```|`[^`\n]+?`)", content)
-
-    # Apply the bold, italic, and strikethrough formatting to text not within code
-    result = ""
-    for part in parts:
-        if not part.startswith("```") and not part.startswith("`"):
-            for o, n in [
-                # *bold* to **bold**
-                (
-                    r"(?<![A-Za-z0-9*])\*(?!\s)([^\*\n]+?)(?<!\s)\*(?![A-Za-z0-9*])",
-                    r"**\1**",
-                ),
-                # _italic_ to *italic*
-                (
-                    r"(?<![A-Za-z0-9_])_(?!\s)([^_\n]+?)(?<!\s)_(?![A-Za-z0-9_])",
-                    r"*\1*",
-                ),
-                # ~strike~ to ~~strike~~
-                (
-                    r"(?<![A-Za-z0-9~])~(?!\s)([^~\n]+?)(?<!\s)~(?![A-Za-z0-9~])",
-                    r"~~\1~~",
-                ),
-            ]:
-                part = re.sub(o, n, part)
-        result += part
-    return result
+# What Slack calls a person or an app. Anything else standing where one
+# does is a name already — an incoming webhook posts under one.
+_SLACK_ID = re.compile(r"[UW][A-Z0-9]{2,}")
 
 
 def build_slack_user_prefixed_text(reply: dict, text: str) -> str:
@@ -95,10 +24,14 @@ def build_slack_user_prefixed_text(reply: dict, text: str) -> str:
         text (str): The text message to be prefixed.
 
     Returns:
-        str: The formatted text message with user mention.
+        str: The text behind whoever sent it — an ID as the mention that
+            `converse_logic` goes on to name, and anything else as the
+            name it already is.
     """
-    user_identifier = reply.get("user", reply.get("username"))
-    return f"<@{user_identifier}>: {text}"
+    speaker = reply.get("user", reply.get("username"))
+    if isinstance(speaker, str) and _SLACK_ID.fullmatch(speaker):
+        return f"<@{speaker}>: {text}"
+    return f"@{speaker}: {text}"
 
 
 # Converse task_update chunks cap title/details at 256 characters.
