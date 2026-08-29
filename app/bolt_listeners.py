@@ -31,7 +31,6 @@ from app.bolt_logic import (
     is_post_from_bot,
     is_post_in_dm,
     is_post_mentioned,
-    keep_newest_replies,
 )
 from app.converse_logic import (
     ContentBlock,
@@ -344,11 +343,14 @@ async def get_thread_replies(
     client: AsyncWebClient, channel_id: str, thread_ts: str
 ) -> list[dict]:
     """
-    Retrieve the replies in a Slack thread, keeping the newest of long ones.
+    Retrieve one page of a Slack thread: its newest replies.
 
-    Follows cursor pagination so a thread longer than one page is read to its
-    end, then keeps the newest MAX_THREAD_REPLIES replies — the latest posts
-    must reach the agent, at the cost of the oldest context.
+    A page is what `limit` asks for, taken from the newest end — a thread
+    longer than that comes back as its parent plus its most recent
+    replies, which is what an answer needs. Slack caps the page at 1000,
+    and Welt asks for the cap rather than paginating past it: the posts a
+    reply is answering are always in the newest page, and a thread that
+    long has already lost its early context to the payload budget.
 
     Args:
         client (AsyncWebClient): The Slack Web API client.
@@ -358,14 +360,12 @@ async def get_thread_replies(
     Returns:
         list[dict]: The newest replies in the thread, in chronological order.
     """
-    replies: list[dict] = []
-    async for page in await client.conversations_replies(
+    response = await client.conversations_replies(
         channel=channel_id,
         ts=thread_ts,
-        limit=1000,
-    ):
-        replies.extend(page.get("messages", []))
-    return keep_newest_replies(replies, max_count=MAX_THREAD_REPLIES)
+        limit=MAX_THREAD_REPLIES,
+    )
+    return response.get("messages", [])
 
 
 def select_files_for_replies(
