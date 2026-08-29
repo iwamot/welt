@@ -64,6 +64,7 @@ from app.slack_file_logic import (
 )
 from app.slack_file_service import fetch_file_blocks
 from app.slack_reaction_service import WaitingReaction
+from app.slack_stream_logic import note_after_reply
 from app.slack_stream_service import RotatingChatStream
 from app.stream_logic import (
     FileOutput,
@@ -85,6 +86,12 @@ class AgentReplyError(Exception):
 # Fixed texts of Welt's own messages — deliberately not configurable, so
 # the frame around the conversation reads the same on every deployment.
 REPLY_FAILURE_TEXT = ":warning: Failed to reply. Please check the app logs."
+# Appended to a reply that a shutdown cut off. Unlike the failure above,
+# this one lands under the half-written answer it interrupted, so it says
+# the answer is unfinished as well as why.
+SHUTDOWN_TEXT = (
+    ":warning: The app is shutting down. This reply is incomplete — please try again."
+)
 RESUME_FAILURE_TEXT = (
     ":warning: Could not resume the agent. The approval may have "
     "expired or already been answered — ask again if needed."
@@ -948,7 +955,7 @@ async def report_reply_failure(
     """
     if streamer is not None and streamer.ts is not None:
         try:
-            await streamer.stop(markdown_text=REPLY_FAILURE_TEXT)
+            await streamer.stop(markdown_text=note_after_reply(REPLY_FAILURE_TEXT))
             return
         except Exception:
             logger.debug("Failed to stop the stream", exc_info=True)

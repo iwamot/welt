@@ -21,6 +21,7 @@ from app.agent_service import init_client, log_local_mode
 from app.bolt_logic import INTERRUPT_ACTION_PATTERN
 from app.bolt_middlewares import before_authorize
 from app.env import Env, load_env, require_env
+from app.slack_stream_service import close_open_streams
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,10 @@ async def main() -> None:
     await stop.wait()
     logger.info("Shutting down...")
     await handler.close_async()
+    # Bolt runs the listeners as untracked tasks, so the replies in flight
+    # are cancelled when the loop closes and never reach their own cleanup.
+    # Their messages are closed here instead, while there is still a loop.
+    await close_open_streams(markdown_text=bolt_listeners.SHUTDOWN_TEXT)
 
 
 def create_bolt_app(env: Env) -> AsyncApp:
