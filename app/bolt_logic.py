@@ -129,29 +129,10 @@ def determine_thread_ts_to_reply(payload: dict) -> str:
     return thread_ts if isinstance(thread_ts, str) else payload["ts"]
 
 
-# A thread longer than this keeps only its newest replies as history.
+# The page Welt asks Slack for. 1000 is the cap conversations.replies
+# accepts, and a page is taken from the thread's newest end, so this is
+# also the most replies any answer is built from.
 MAX_THREAD_REPLIES = 1000
-
-
-def keep_newest_replies(replies: list[dict], *, max_count: int) -> list[dict]:
-    """
-    Keep the newest replies of an overlong thread, dropping the oldest.
-
-    The newest replies carry the post being answered, so an overlong thread
-    loses its oldest context rather than its latest question.
-
-    Args:
-        replies (list[dict]): Slack replies in chronological order.
-        max_count (int): The maximum number of replies to keep.
-
-    Returns:
-        list[dict]: The newest replies, at most max_count of them.
-    """
-    if max_count <= 0:
-        return []
-    if len(replies) <= max_count:
-        return list(replies)
-    return replies[-max_count:]
 
 
 def has_read_files_scope(authorize_result: AuthorizeResult | None) -> bool:

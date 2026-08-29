@@ -14,7 +14,6 @@ from app.bolt_logic import (
     is_post_in_dm,
     is_post_mentioned,
     is_retried_request,
-    keep_newest_replies,
     should_skip_event,
 )
 
@@ -188,34 +187,6 @@ def test_determine_thread_ts_to_reply(payload, expected):
     result = determine_thread_ts_to_reply(payload)
 
     assert result == expected
-
-
-@pytest.mark.parametrize(
-    "replies, max_count, expected",
-    [
-        # Shorter than the limit: everything is kept.
-        ([{"ts": "1"}, {"ts": "2"}], 3, [{"ts": "1"}, {"ts": "2"}]),
-        # Exactly at the limit: everything is kept.
-        ([{"ts": "1"}, {"ts": "2"}], 2, [{"ts": "1"}, {"ts": "2"}]),
-        # Over the limit: the oldest replies are dropped.
-        ([{"ts": "1"}, {"ts": "2"}, {"ts": "3"}], 2, [{"ts": "2"}, {"ts": "3"}]),
-        ([], 2, []),
-        ([{"ts": "1"}], 0, []),
-    ],
-)
-def test_keep_newest_replies(replies, max_count, expected):
-    result = keep_newest_replies(replies, max_count=max_count)
-
-    assert result == expected
-
-
-def test_keep_newest_replies_returns_a_copy():
-    replies = [{"ts": "1"}]
-
-    result = keep_newest_replies(replies, max_count=2)
-
-    assert result == replies
-    assert result is not replies
 
 
 @pytest.mark.parametrize(
