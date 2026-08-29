@@ -14,11 +14,12 @@ from __future__ import annotations
 import logging
 
 from slack_sdk.errors import SlackApiError
+from slack_sdk.models.messages.chunk import MarkdownTextChunk
 from slack_sdk.web.async_chat_stream import AsyncChatStream
 from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
-from app.slack_stream_logic import PendingAppends
+from app.slack_stream_logic import PendingAppends, note_after_reply
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ class RotatingChatStream:
         self._buffer_size = buffer_size
         self._streamer: AsyncChatStream | None = None
         self._pending = PendingAppends()
+        self._abandoned = False
 
     @property
     def ts(self) -> str | None:
@@ -84,8 +86,11 @@ class RotatingChatStream:
         Returns:
             None
         """
+        if self._abandoned:
+            return
         if self._streamer is None:
             self._streamer = await self._new_streamer()
+            _open_streams.add(self)
         try:
             await self._append_to_streamer(markdown_text=markdown_text, chunks=chunks)
         except SlackApiError as error:
@@ -113,8 +118,13 @@ class RotatingChatStream:
         Returns:
             None
         """
-        if self._streamer is None and markdown_text is None and not chunks:
+        if self._abandoned or (
+            self._streamer is None and markdown_text is None and not chunks
+        ):
             return
+        # Left here rather than after the close so a shutdown sweep does not
+        # close a stream its own caller is already closing.
+        _open_streams.discard(self)
         self._pending.record(markdown_text=markdown_text, chunks=chunks)
         if self._streamer is None:
             self._streamer = await self._new_streamer()
@@ -127,6 +137,41 @@ class RotatingChatStream:
             await self._require_streamer().stop()
         else:
             self._pending.clear()
+
+    async def close_unfinished(self, *, markdown_text: str) -> None:
+        """
+        Close the open message where it stands, saying why.
+
+        For a reply being abandoned rather than finished — a shutdown —
+        while the coroutine writing it may still be inside an append. The
+        SDK helper clears its buffer only after its own call returns, so a
+        `stop` racing that call would read the same buffer and deliver it
+        a second time. This goes to the API directly instead: the note is
+        the only thing sent, and whatever the helper still holds is
+        dropped with the reply it belonged to.
+
+        The stream is left abandoned: a later append or stop on it does
+        nothing, so the coroutine that was writing the reply cannot open a
+        second message to report the failure it is about to see.
+
+        Args:
+            markdown_text (str): Markdown to close the message with.
+
+        Returns:
+            None
+        """
+        # Set before the call: past here the reply is over, and an append
+        # or a stop from the coroutine still writing it would land on a
+        # message that is closing, or open a second one to report that.
+        self._abandoned = True
+        ts = self.ts
+        if ts is None:
+            return
+        await self._client.chat_stopStream(
+            channel=self._channel,
+            ts=ts,
+            chunks=[MarkdownTextChunk(text=markdown_text)],
+        )
 
     async def _rotate(self) -> None:
         """Finalize the full message and continue in a fresh one.
@@ -182,3 +227,35 @@ class RotatingChatStream:
         if self._streamer is None:
             raise RuntimeError("The stream has not been opened by an append")
         return self._streamer
+
+
+# The streams with a message open in a thread. A shutdown closes what is
+# here: a reply cut off mid-flight would otherwise leave a message streaming
+# with nothing to say why. A stream joins on the append that opens it — one
+# that never opened has no message to close — and leaves when a caller
+# stops it.
+_open_streams: set[RotatingChatStream] = set()
+
+
+async def close_open_streams(*, markdown_text: str) -> None:
+    """
+    Close every stream still open, appending markdown_text to each.
+
+    For shutdown, once new work has stopped arriving. The replies
+    themselves cannot be finished — an agent's reply runs for minutes and
+    a stopping container has seconds — so each message is closed where it
+    stands, saying so. One that fails to close does not stop the rest.
+
+    Args:
+        markdown_text (str): Markdown to append before closing each.
+
+    Returns:
+        None
+    """
+    note = note_after_reply(markdown_text)
+    for stream in list(_open_streams):
+        _open_streams.discard(stream)
+        try:
+            await stream.close_unfinished(markdown_text=note)
+        except Exception:
+            logger.exception("Failed to close a stream while shutting down")

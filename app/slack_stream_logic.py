@@ -1,4 +1,4 @@
-"""Pure logic for the streaming reply's undelivered tail.
+"""Pure logic for the streaming reply: its undelivered tail, and its notes.
 
 The SDK helper buffers markdown until its buffer size and only then calls
 the API, so an append that raised — and the buffered appends before it —
@@ -11,6 +11,23 @@ lives in `slack_stream_service`.
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+
+def note_after_reply(text: str) -> str:
+    """
+    Set a note off from the reply it is appended to.
+
+    Welt's own notes — a failure, a shutdown — are appended to whatever
+    the reply had streamed so far, which is a sentence stopped wherever it
+    was. Without a break the note reads as the next few words of it.
+
+    Args:
+        text (str): The note.
+
+    Returns:
+        str: The note, opening on a line of its own.
+    """
+    return f"\n\n{text}"
 
 
 @dataclass(frozen=True)

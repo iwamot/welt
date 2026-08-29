@@ -1,6 +1,19 @@
 from __future__ import annotations
 
-from app.slack_stream_logic import PendingAppend, PendingAppends
+from app.slack_stream_logic import PendingAppend, PendingAppends, note_after_reply
+
+# --- note_after_reply -------------------------------------------------------
+
+
+def test_a_note_opens_on_a_line_of_its_own():
+    assert note_after_reply(":warning: Stopped.") == "\n\n:warning: Stopped."
+
+
+def test_a_note_is_set_off_from_a_sentence_stopped_mid_word():
+    reply = "the congestion window is halved when the sender dete"
+
+    assert (reply + note_after_reply("!")).splitlines()[-1] == "!"
+
 
 # --- record ------------------------------------------------------------------
 
