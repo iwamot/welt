@@ -33,6 +33,18 @@ logger = logging.getLogger(__name__)
 PDF_MAGIC_PREFIX = b"%PDF-"
 
 
+# What one file download is given. `sock_connect` and `sock_read` are the
+# limits that judge it: how long the socket may take to open, and how long
+# the transfer may go silent. Both bound waiting on a connection that has
+# stopped rather than one that is merely slow — how large a file may be is
+# `MAX_BYTES_BY_MODALITY`'s to say, and a limit on the download as a whole
+# would refuse a video Welt accepts on any line too slow to carry it in
+# time. `total` is the backstop above them, for a transfer that trickles
+# without ever falling silent: at 120 seconds the largest file accepted,
+# 18,750,000 bytes, still arrives on a line holding 1.25 Mbps.
+_DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(total=120, sock_connect=10, sock_read=10)
+
+
 class _TransientDownloadError(SlackApiError):
     """A download failure a further attempt could still get past."""
 
@@ -148,7 +160,7 @@ async def _read_slack_file(
         async with session.get(
             url,
             headers={"Authorization": f"Bearer {bot_token}"},
-            timeout=aiohttp.ClientTimeout(total=10),
+            timeout=_DOWNLOAD_TIMEOUT,
         ) as response:
             if response.status != 200:
                 message = f"Request to {url} failed with status code {response.status}"
