@@ -99,7 +99,7 @@ The value maps each [`interrupt` event's](#interrupt) id to the answer a human g
 
 `source` names the widget the answer came from — `"option"` for a pressed button, `"input"` for a submitted text field — after the reason key that declares it. It travels because only Welt can tell the two apart: a human who types what an option declared would otherwise be indistinguishable from one who pressed it.
 
-The mapping is deliberately framework-neutral; turning it into the framework's own resume input is the adapter's job. Welt sends it only after every pending question is answered — there is no partial resume.
+The mapping is deliberately framework-neutral; turning it into the framework's own resume input is the adapter's job. Welt sends it only after every pending question is answered — there is no partial resume, since most of the frameworks the adapters cover resume a run as a whole rather than a question at a time.
 
 ### Malformed payloads
 
