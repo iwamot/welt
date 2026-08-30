@@ -65,10 +65,11 @@ The value is the conversation as [Bedrock Converse-shaped messages](https://docs
   |---|---|
   | `[file: chart.png]` | a file the message shows, whether or not its bytes travel as a content block |
   | `[file: Weekly report (sample.csv)]` | a file given a title of its own, which is what the thread shows over its name |
-  | `[task: Using search]` | what the reply did before answering, as the thread showed it happening (`— error` where it failed); what a tool was given and what it returned the thread does not show, and neither travels |
+  | `[task: Using search]` | what the reply did before answering, as the thread showed it happening; any status other than complete follows a dash (`— error` where it failed, `— in progress` where the reply is still running, or ended, before the tool came back); what a tool was given and what it returned the thread does not show, and neither travels |
   | `[buttons: Publish \| Cancel]` | a question still waiting to be answered; answering removes the widgets |
   | `[menu: Pick a branch]` | a menu still waiting to be picked from |
   | `[image: https://…]` | a picture the message shows but does not carry |
+  | `[video: Release demo](https://…)` | a video the message embeds, linked where it says where it is, its description under it |
   | `[input: Or say why not]` | a field still waiting to be typed in |
   | `[context: “Publish” — answered by iwamot]` | the aside Slack draws small and grey under a message — a receipt, a notice |
 - **History** — by default the payload carries the whole thread. When the agent keeps its own history (the operator sets `AGENT_MANAGES_HISTORY`), it carries only the messages after Welt's last reply — the ones the agent has not seen.
