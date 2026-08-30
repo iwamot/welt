@@ -257,7 +257,16 @@ async def _stream_local_events(
                 "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": session_id,
             },
         )
-        return connection.getresponse()
+        response = connection.getresponse()
+        # A Runtime invoke fails as an exception boto3 raises; a local one
+        # answers with a status and raises nothing. Left at that, the error
+        # body parses as an event stream carrying nothing, and a reply that
+        # renders nothing opens no message — the failure would reach no one.
+        # What went wrong is the local agent's own to report, on the console
+        # it runs in, so the status is all this carries.
+        if not 200 <= response.status < 300:
+            raise RuntimeError(f"The local agent answered {response.status}")
+        return response
 
     try:
         response = await asyncio.to_thread(invoke)
