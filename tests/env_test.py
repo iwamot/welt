@@ -126,6 +126,23 @@ def test_non_integer_buffer_size_is_rejected():
         load_env({**_REQUIRED, "SLACK_STREAM_BUFFER_SIZE": "many"})
 
 
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_buffer_size_below_one_is_rejected(value: str):
+    with pytest.raises(ValueError, match="SLACK_STREAM_BUFFER_SIZE must be at"):
+        load_env({**_REQUIRED, "SLACK_STREAM_BUFFER_SIZE": value})
+
+
+@pytest.mark.parametrize("name", ["LOG_LEVEL", "DEPS_LOG_LEVEL"])
+def test_unknown_log_level_is_rejected(name: str):
+    with pytest.raises(ValueError, match=f"{name} must be a logging level"):
+        load_env({**_REQUIRED, name: "INF0"})
+
+
+@pytest.mark.parametrize("name", ["LOG_LEVEL", "DEPS_LOG_LEVEL"])
+def test_empty_log_level_falls_back_to_the_default(name: str):
+    assert getattr(load_env({**_REQUIRED, name: ""}), name.lower()) == "INFO"
+
+
 def test_harness_arn_ignores_file_input_with_a_warning():
     environ = {
         **_REQUIRED,
