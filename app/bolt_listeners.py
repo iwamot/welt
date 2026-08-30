@@ -435,7 +435,7 @@ async def fetch_display_names(
         if not _names_readable:
             break
         try:
-            profile = (await client.users_info(user=user_id))["user"]["profile"]
+            user = (await client.users_info(user=user_id))["user"]
         except SlackApiError as error:
             # Without users:read there is nothing to come back for; asking
             # again every turn would only spend a round trip per speaker.
@@ -445,8 +445,8 @@ async def fetch_display_names(
         except Exception:
             logger.debug("Failed to look up %s", user_id, exc_info=True)
             continue
-        name = profile.get("display_name") or profile.get("real_name")
-        if isinstance(name, str) and name:
+        name = pick_display_name(user)
+        if name is not None:
             _display_names[user_id] = name
     return {uid: _display_names[uid] for uid in user_ids if uid in _display_names}
 
