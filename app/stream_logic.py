@@ -159,13 +159,22 @@ def _parse_interrupt(interrupt: dict) -> Interrupt | None:
     Returns:
         Interrupt | None: The interrupt, or None when the id or name is not
             a string (the reason is kept as-is — any JSON value is legal,
-            and the rendering layer decides how to show it).
+            and the rendering layer decides how to show it). A dropped
+            interrupt leaves the agent waiting for an answer that never
+            comes, so the warning is there for the agent's author, who is
+            the only one who can fix it.
     """
     interrupt_id = interrupt.get("id")
     name = interrupt.get("name")
     if not isinstance(interrupt_id, str) or not interrupt_id:
+        logger.warning(
+            f"Skipped an interrupt with a malformed id (id: {interrupt_id!r})"
+        )
         return None
     if not isinstance(name, str):
+        logger.warning(
+            f"Skipped an interrupt with a malformed name (id: {interrupt_id}, name: {name!r})"
+        )
         return None
     return Interrupt(id=interrupt_id, name=name, reason=interrupt.get("reason"))
 
