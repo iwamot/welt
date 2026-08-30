@@ -45,6 +45,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from app.bolt_logic import INTERRUPT_ACTION_PREFIX
+from app.slack_markdown_logic import blocks_to_markdown
 from app.stream_logic import Interrupt
 
 # The metadata event type marking a message as Welt's interrupt collector.
@@ -57,6 +58,9 @@ METADATA_EVENT_TYPE = "welt_interrupt"
 # back instead (a partial button row could not be answered completely, so it
 # must not render).
 _MARKDOWN_TEXT_MAX = 12000
+# Slack's cap on a message's `text`. The bodies above share a smaller
+# budget, so only a stop carrying many questions comes near it.
+_FALLBACK_TEXT_MAX = 40000
 _TEXT_OBJECT_MAX = 3000
 _BUTTON_LABEL_MAX = 75
 _MAX_OPTIONS = 25
@@ -857,6 +861,31 @@ def replace_answered_blocks(
         )
         inserted = True
     return updated
+
+
+def build_fallback_text(blocks: Sequence, *, default: str) -> str:
+    """
+    Say what a button message holds, for where its blocks cannot be drawn.
+
+    A message's `text` stands in for its blocks wherever they are not
+    rendered — a preview, a search result, a screen reader. A button
+    message is posted asking for a decision and then rewritten as the
+    answers come in, so the line it was posted with stops describing it.
+    Reading the blocks it now renders keeps the two saying the same
+    thing: the questions, the answers given, and the widgets still
+    waiting, since what a reader cannot see is exactly what they most
+    need told. The reading is the one a thread's history is built with,
+    so nothing is worded twice.
+
+    Args:
+        blocks (Sequence): The blocks the message renders.
+        default (str): The text to stand in when the blocks read as
+            nothing.
+
+    Returns:
+        str: What the blocks say, clipped to what Slack takes.
+    """
+    return _clip(blocks_to_markdown(list(blocks)), _FALLBACK_TEXT_MAX) or default
 
 
 def append_context_notice(blocks: Sequence, text: str) -> list:

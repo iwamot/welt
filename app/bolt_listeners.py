@@ -42,6 +42,7 @@ from app.env import Env
 from app.interrupt_logic import (
     append_context_notice,
     build_collection_metadata,
+    build_fallback_text,
     build_interrupt_blocks,
     build_interrupt_responses,
     initial_collection_state,
@@ -95,7 +96,9 @@ RESUME_FAILURE_TEXT = (
     ":warning: Could not resume the agent. The approval may have "
     "expired or already been answered — ask again if needed."
 )
-# The plain-text summary of the button message (notifications, accessibility).
+# What stands in for a button message whose blocks read as nothing at all.
+# Every message Welt builds says more than this; it is here so that `text`
+# is never empty.
 INTERRUPT_PROMPT_TEXT = "The agent needs your decision to continue."
 
 
@@ -518,11 +521,12 @@ async def stream_reply_with_interrupt_prompt(
         {interrupt.id: interrupt.name for interrupt in interrupts},
         session_id,
     )
+    blocks = build_interrupt_blocks(interrupts)
     await client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
-        text=INTERRUPT_PROMPT_TEXT,
-        blocks=build_interrupt_blocks(interrupts),
+        text=build_fallback_text(blocks, default=INTERRUPT_PROMPT_TEXT),
+        blocks=blocks,
         metadata=build_collection_metadata(initial_collection_state(interrupts)),
     )
 
@@ -792,11 +796,14 @@ async def respond_to_interrupt_action(
             presser_name=presser_name,
             answer=choice,
         )
+        shown_blocks = (
+            replaced_blocks if replaced_blocks is not None else original_blocks
+        )
         await client.chat_update(
             channel=context.channel_id,
             ts=message_ts,
-            text=INTERRUPT_PROMPT_TEXT,
-            blocks=replaced_blocks if replaced_blocks is not None else original_blocks,
+            text=build_fallback_text(shown_blocks, default=INTERRUPT_PROMPT_TEXT),
+            blocks=shown_blocks,
             metadata=build_collection_metadata(updated),
         )
 
@@ -826,14 +833,12 @@ async def respond_to_interrupt_action(
                     first.message,
                     session_id,
                 )
+            noticed_blocks = append_context_notice(shown_blocks, RESUME_FAILURE_TEXT)
             await client.chat_update(
                 channel=context.channel_id,
                 ts=message_ts,
-                text=INTERRUPT_PROMPT_TEXT,
-                blocks=append_context_notice(
-                    replaced_blocks if replaced_blocks is not None else original_blocks,
-                    RESUME_FAILURE_TEXT,
-                ),
+                text=build_fallback_text(noticed_blocks, default=INTERRUPT_PROMPT_TEXT),
+                blocks=noticed_blocks,
                 metadata=build_collection_metadata(updated),
             )
             return
