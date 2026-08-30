@@ -156,12 +156,18 @@ def test_interrupt_without_reason_keeps_none():
     )
 
 
-def test_interrupt_with_malformed_id_or_name_is_ignored():
-    assert parse_stream_event({"interrupt": {"id": 1, "name": "n"}}) is None
-    assert parse_stream_event({"interrupt": {"id": "", "name": "n"}}) is None
-    assert parse_stream_event({"interrupt": {"name": "n"}}) is None
-    assert parse_stream_event({"interrupt": {"id": "i-1", "name": 1}}) is None
-    assert parse_stream_event({"interrupt": {"id": "i-1"}}) is None
+def test_interrupt_with_malformed_id_or_name_is_ignored_with_a_warning(caplog):
+    with caplog.at_level(logging.WARNING):
+        assert parse_stream_event({"interrupt": {"id": 1, "name": "n"}}) is None
+        assert parse_stream_event({"interrupt": {"id": "", "name": "n"}}) is None
+        assert parse_stream_event({"interrupt": {"name": "n"}}) is None
+        assert parse_stream_event({"interrupt": {"id": "i-1", "name": 1}}) is None
+        assert parse_stream_event({"interrupt": {"id": "i-1"}}) is None
+
+    assert len(caplog.records) == 5
+    assert "malformed id" in caplog.records[0].message
+    assert "i-1" in caplog.records[3].message
+    assert "malformed name" in caplog.records[3].message
 
 
 def test_non_dict_interrupt_event_is_ignored():
