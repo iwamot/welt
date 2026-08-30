@@ -13,7 +13,9 @@ blocking read of the response are pushed to a worker thread to keep the
 event loop free. A reply is not always read to its end — an error event, or
 a failed Slack call while the reply is being rendered, ends the run there —
 so every path closes its response on the way out instead of leaving the
-connection to be reclaimed whenever the stream is finalized.
+connection to be reclaimed whenever the stream is finalized. A stream that
+falls silent past the read timeout ends as `AgentSilenceTimeout`, which
+tells a slow agent apart from a broken one.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from collections.abc import AsyncIterator, Iterator
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ReadTimeoutError
 
 from app.agent_logic import build_qualifier_kwargs, is_harness_arn
 from app.converse_logic import Message, keep_messages_after_last_assistant
@@ -38,6 +41,11 @@ from app.stream_logic import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class AgentSilenceTimeout(Exception):
+    """The agent sent nothing for long enough that the read timeout fired."""
+
 
 _client = None
 
@@ -144,24 +152,26 @@ def stream_agent_events(
     if agent_manages_history:
         messages = keep_messages_after_last_assistant(messages)
     if agent_arn is None:
-        return _stream_local_events(
+        events = _stream_local_events(
             payload={"messages": messages}, session_id=session_id
         )
-    if is_harness_arn(agent_arn):
-        return _stream_harness_events(
+    elif is_harness_arn(agent_arn):
+        events = _stream_harness_events(
             harness_arn=agent_arn,
             qualifier=agent_qualifier,
             messages=messages,
             session_id=session_id,
             user_id=user_id,
         )
-    return _stream_runtime_events(
-        agent_arn=agent_arn,
-        qualifier=agent_qualifier,
-        payload={"messages": messages},
-        session_id=session_id,
-        user_id=user_id,
-    )
+    else:
+        events = _stream_runtime_events(
+            agent_arn=agent_arn,
+            qualifier=agent_qualifier,
+            payload={"messages": messages},
+            session_id=session_id,
+            user_id=user_id,
+        )
+    return _translate_silence(events)
 
 
 def stream_agent_resume_events(
@@ -195,14 +205,33 @@ def stream_agent_resume_events(
     """
     payload = {"interrupt_responses": interrupt_responses}
     if agent_arn is None:
-        return _stream_local_events(payload=payload, session_id=session_id)
-    return _stream_runtime_events(
-        agent_arn=agent_arn,
-        qualifier=agent_qualifier,
-        payload=payload,
-        session_id=session_id,
-        user_id=user_id,
-    )
+        events = _stream_local_events(payload=payload, session_id=session_id)
+    else:
+        events = _stream_runtime_events(
+            agent_arn=agent_arn,
+            qualifier=agent_qualifier,
+            payload=payload,
+            session_id=session_id,
+            user_id=user_id,
+        )
+    return _translate_silence(events)
+
+
+async def _translate_silence(
+    events: AsyncIterator[RenderEvent],
+) -> AsyncIterator[RenderEvent]:
+    # A read timeout means the stream went quiet, which is not always a
+    # stalled connection: a model that thinks before it speaks sends nothing
+    # while it does. Naming that case as its own exception is what lets a
+    # caller say so instead of reporting a broken reply. Wrapping all three
+    # paths here keeps the two timeout flavours — boto3's and the socket's —
+    # in one place, and only the agent's stream runs inside this scope, so a
+    # bare TimeoutError here (which asyncio raises too) can only be a read.
+    try:
+        async for render_event in events:
+            yield render_event
+    except (ReadTimeoutError, TimeoutError) as error:
+        raise AgentSilenceTimeout from error
 
 
 async def _stream_runtime_events(
