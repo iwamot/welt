@@ -22,7 +22,11 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
 from app.agent_logic import build_runtime_session_id, build_runtime_user_id
-from app.agent_service import stream_agent_events, stream_agent_resume_events
+from app.agent_service import (
+    AgentSilenceTimeout,
+    stream_agent_events,
+    stream_agent_resume_events,
+)
 from app.bolt_logic import (
     MAX_THREAD_REPLIES,
     determine_thread_ts_to_reply,
@@ -95,6 +99,14 @@ SHUTDOWN_TEXT = (
 RESUME_FAILURE_TEXT = (
     ":warning: Could not resume the agent. The approval may have "
     "expired or already been answered — ask again if needed."
+)
+# For the one failure that is not a failure of Welt's or the agent's: a
+# reply that sent nothing for long enough to be cut off as a stalled one.
+# It reads under a half-written reply, on its own, and under the buttons of
+# a resume, so it says nothing about where the reply got to.
+AGENT_TIMEOUT_TEXT = (
+    ":warning: The agent went quiet for too long, so this reply was ended. "
+    "It may just be slow — please ask again."
 )
 # What stands in for a button message whose blocks read as nothing at all.
 # Every message Welt builds says more than this; it is here so that `text`
@@ -217,6 +229,15 @@ async def respond_to_new_post(
             streamer=streamer,
             events=events,
             session_id=session_id,
+        )
+    except AgentSilenceTimeout:
+        logger.warning("The agent went quiet (session: %s)", session_id)
+        await report_reply_failure(
+            client=client,
+            channel_id=context.channel_id,
+            thread_ts=reply_thread_ts,
+            streamer=streamer,
+            text=AGENT_TIMEOUT_TEXT,
         )
     except Exception:
         logger.exception("Failed to reply (session: %s)", session_id)
@@ -822,8 +843,12 @@ async def respond_to_interrupt_action(
         # buttons instead of an empty reply bubble. A failure after the
         # reply started streaming takes the usual reply-failure route below.
         first: RenderEvent | None = None
+        notice_text = RESUME_FAILURE_TEXT
         try:
             first = await anext(aiter(events), None)
+        except AgentSilenceTimeout:
+            logger.warning("The agent went quiet on resume (session: %s)", session_id)
+            notice_text = AGENT_TIMEOUT_TEXT
         except Exception:
             logger.exception("Failed to resume the agent (session: %s)", session_id)
         if first is None or isinstance(first, StreamError):
@@ -833,7 +858,7 @@ async def respond_to_interrupt_action(
                     first.message,
                     session_id,
                 )
-            noticed_blocks = append_context_notice(shown_blocks, RESUME_FAILURE_TEXT)
+            noticed_blocks = append_context_notice(shown_blocks, notice_text)
             await client.chat_update(
                 channel=context.channel_id,
                 ts=message_ts,
@@ -857,6 +882,15 @@ async def respond_to_interrupt_action(
             streamer=streamer,
             events=_with_first(first, events),
             session_id=session_id,
+        )
+    except AgentSilenceTimeout:
+        logger.warning("The agent went quiet (session: %s)", session_id)
+        await report_reply_failure(
+            client=client,
+            channel_id=context.channel_id,
+            thread_ts=thread_ts,
+            streamer=streamer,
+            text=AGENT_TIMEOUT_TEXT,
         )
     except Exception:
         logger.exception("Failed to reply (session: %s)", session_id)
@@ -939,33 +973,36 @@ async def report_reply_failure(
     channel_id: str,
     thread_ts: str,
     streamer: RotatingChatStream | None,
+    text: str = REPLY_FAILURE_TEXT,
 ) -> None:
     """
-    Report a failed reply with a generic note to Slack.
+    Report a failed reply with a fixed note to Slack.
 
     The caller logs the failure itself; the error text can carry internals
-    (ARNs, AWS error details), so the channel only gets a generic pointer.
-    If the streaming reply is already visible, the note finalizes that
-    message so no empty half-open reply is left behind; otherwise it is
-    posted as a new reply.
+    (ARNs, AWS error details), so the channel only gets one of Welt's own
+    texts. If the streaming reply is already visible, the note finalizes
+    that message so no empty half-open reply is left behind; otherwise it
+    is posted as a new reply.
 
     Args:
         client (AsyncWebClient): The Slack Web API client.
         channel_id (str): The ID of the channel where the post was made.
         thread_ts (str): The thread timestamp to reply to.
         streamer (RotatingChatStream | None): The stream helper, if created.
+        text (str): The note to leave, for a failure whose cause is worth
+            naming. Defaults to the generic pointer to the app logs.
 
     Returns:
         None
     """
     if streamer is not None and streamer.ts is not None:
         try:
-            await streamer.stop(markdown_text=note_after_reply(REPLY_FAILURE_TEXT))
+            await streamer.stop(markdown_text=note_after_reply(text))
             return
         except Exception:
             logger.debug("Failed to stop the stream", exc_info=True)
     await client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
-        text=REPLY_FAILURE_TEXT,
+        text=text,
     )
