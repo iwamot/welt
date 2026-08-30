@@ -18,7 +18,7 @@ A file's name reaches the agent either way: one whose bytes are not embedded —
 
 ## Output: agent files to the thread
 
-A generated file arrives as one [`file` event](wire.md#file) on the reply stream, and Welt uploads it into the thread, where it appears alongside the streamed reply. An [agent-side adapter](../README.md#agent-side-adapters) emits these for you — see its documentation for how a tool attaches a file.
+A generated file arrives as one [`file` event](wire.md#file) on the reply stream, and Welt uploads it into the thread, where it appears alongside the streamed reply. An [agent-side adapter](../README.md#agent-side-adapters) emits these for you — see its documentation for how a tool attaches a file. A [managed harness](harness.md) emits no `file` events, so a harness reply never carries files.
 
 ![An agent-generated image uploaded into the Slack thread alongside the streamed reply](images/file-upload.png)
 
