@@ -12,6 +12,7 @@ from app.interrupt_logic import (
     InterruptPrompt,
     append_context_notice,
     build_collection_metadata,
+    build_fallback_text,
     build_interrupt_blocks,
     build_interrupt_responses,
     derive_interrupt_prompt,
@@ -1044,3 +1045,56 @@ def test_display_name_falls_back_through_real_names():
 def test_display_name_of_an_unreadable_user_is_none():
     assert pick_display_name("not a dict") is None
     assert pick_display_name({"name": "", "real_name": 42}) is None
+
+
+# --- build_fallback_text ---------------------------------------------------------
+
+
+def test_fallback_text_says_what_the_message_holds():
+    blocks = [
+        {"type": "markdown", "text": "Send the invoice?"},
+        {
+            "type": "actions",
+            "elements": [
+                {"type": "button", "text": {"type": "plain_text", "text": "Approve"}}
+            ],
+        },
+    ]
+
+    assert build_fallback_text(blocks, default="A decision is needed.") == (
+        "Send the invoice?\n\n[buttons: Approve]"
+    )
+
+
+def test_fallback_text_follows_the_message_as_it_is_answered():
+    blocks = [
+        {"type": "markdown", "text": "Send the invoice?"},
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "plain_text",
+                    "text": "\u201cApprove\u201d — answered by Takashi",
+                }
+            ],
+        },
+    ]
+
+    assert build_fallback_text(blocks, default="A decision is needed.") == (
+        "Send the invoice?\n\n[context: \u201cApprove\u201d — answered by Takashi]"
+    )
+
+
+def test_fallback_text_stands_in_when_the_blocks_read_as_nothing():
+    assert build_fallback_text([], default="A decision is needed.") == (
+        "A decision is needed."
+    )
+
+
+def test_fallback_text_is_clipped_to_what_slack_takes():
+    text = build_fallback_text(
+        [{"type": "markdown", "text": "x" * 40_001}], default="A decision is needed."
+    )
+
+    assert len(text) == 40_000
+    assert text.endswith("…")
