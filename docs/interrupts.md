@@ -87,6 +87,7 @@ Bodies — the structured `message` and the plain-string reason — render as st
 
 ## Limitations
 
+- **A [managed harness](harness.md) cannot raise interrupts.** They reach Welt only from a runtime agent or the local agent, so pointing `AGENT_ARN` at a harness leaves no human-in-the-loop.
 - **MCP elicitation is not supported.** Do not register an elicitation callback when your agent acts as an MCP client — there is no response path on the wire, and the tool call would hang.
 - Expiry is optimistic only (see [Behavior details](#behavior-details)); there is no guarantee of how long answers stay acceptable.
 - Rendering quality is only guaranteed for the structured reason shape; fallbacks guarantee just the visible, answerable pause.
