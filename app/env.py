@@ -8,6 +8,7 @@ message, and the rest of the app never touches `os.environ`.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -113,6 +114,12 @@ def load_env(environ: Mapping[str, str]) -> Env:
             )
         harness = is_harness_arn(agent_arn)
         agent_arn, arn_endpoint = split_endpoint_arn(agent_arn)
+    slack_stream_buffer_size = _get_int(environ, "SLACK_STREAM_BUFFER_SIZE", 256)
+    if slack_stream_buffer_size < 1:
+        raise ValueError(
+            "SLACK_STREAM_BUFFER_SIZE must be at least 1, "
+            f"got {slack_stream_buffer_size}"
+        )
     # boot_warnings stays in ascending variable-name order.
     boot_warnings: list[str] = []
     agent_manages_history = _get_bool(environ, "AGENT_MANAGES_HISTORY", harness)
@@ -136,9 +143,9 @@ def load_env(environ: Mapping[str, str]) -> Env:
         agent_region=agent_region,
         agent_qualifier=arn_endpoint,
         slack_bot_token=require_env(environ, "SLACK_BOT_TOKEN"),
-        log_level=environ.get("LOG_LEVEL", "INFO"),
-        deps_log_level=environ.get("DEPS_LOG_LEVEL", "INFO"),
-        slack_stream_buffer_size=_get_int(environ, "SLACK_STREAM_BUFFER_SIZE", 256),
+        log_level=_get_log_level(environ, "LOG_LEVEL"),
+        deps_log_level=_get_log_level(environ, "DEPS_LOG_LEVEL"),
+        slack_stream_buffer_size=slack_stream_buffer_size,
         file_input_modalities=file_input_modalities,
         agent_manages_history=agent_manages_history,
         boot_warnings=tuple(boot_warnings),
@@ -177,6 +184,15 @@ def _get_int(environ: Mapping[str, str], name: str, default: int) -> int:
         return int(value)
     except ValueError:
         raise ValueError(f"{name} must be an integer, got {value!r}") from None
+
+
+def _get_log_level(environ: Mapping[str, str], name: str) -> str:
+    # The names `logging` itself accepts, so a typo fails here rather than
+    # in logging.basicConfig after load_env has returned.
+    value = environ.get(name) or "INFO"
+    if value not in logging.getLevelNamesMapping():
+        raise ValueError(f"{name} must be a logging level name, got {value!r}")
+    return value
 
 
 def _get_bool(environ: Mapping[str, str], name: str, default: bool) -> bool:
