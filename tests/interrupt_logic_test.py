@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from app.interrupt_logic import (
     DEFAULT_OPTIONS,
     METADATA_EVENT_TYPE,
@@ -446,6 +448,47 @@ def test_bodies_split_the_cumulative_markdown_budget():
     bodies = [block["text"] for block in blocks if block["type"] == "markdown"]
     assert [len(body) for body in bodies] == [6000, 6000]
     assert all(body.endswith("…") for body in bodies)
+
+
+def test_a_stop_filling_one_message_renders():
+    # 25 questions with buttons alone are 50 blocks, the cap; so are 16
+    # questions carrying both buttons and a field (48) plus one with buttons.
+    button_only = [
+        Interrupt(id=f"i-{i}", name="q", reason="Continue?") for i in range(25)
+    ]
+    mixed = [
+        Interrupt(
+            id=f"i-{i}",
+            name="q",
+            reason={"message": "Which?", "approve": {}, "input": {}},
+        )
+        for i in range(16)
+    ] + [Interrupt(id="i-16", name="q", reason="Continue?")]
+
+    assert len(build_interrupt_blocks(button_only)) == 50
+    assert len(build_interrupt_blocks(mixed)) == 50
+
+
+def test_a_stop_overflowing_one_message_is_refused():
+    # One more question than the message holds: nothing renders, since a
+    # message carrying only some of the questions could not be answered
+    # completely.
+    button_only = [
+        Interrupt(id=f"i-{i}", name="q", reason="Continue?") for i in range(26)
+    ]
+    mixed = [
+        Interrupt(
+            id=f"i-{i}",
+            name="q",
+            reason={"message": "Which?", "approve": {}, "input": {}},
+        )
+        for i in range(17)
+    ]
+
+    with pytest.raises(ValueError, match="26 interrupts need 52 blocks"):
+        build_interrupt_blocks(button_only)
+    with pytest.raises(ValueError, match="17 interrupts need 51 blocks"):
+        build_interrupt_blocks(mixed)
 
 
 # --- collection state ----------------------------------------------------------
