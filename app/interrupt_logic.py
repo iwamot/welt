@@ -56,8 +56,11 @@ METADATA_EVENT_TYPE = "welt_interrupt"
 # stop's questions split it evenly. Labels have per-element caps. Bodies and
 # labels are clipped to fit; a structured reason with too many options falls
 # back instead (a partial button row could not be answered completely, so it
-# must not render).
+# must not render). A stop whose questions need more blocks than one message
+# holds is refused outright: every question needs its body and a widget, so
+# no rendering of the stop could be answered completely.
 _MARKDOWN_TEXT_MAX = 12000
+_MAX_BLOCKS = 50
 # Slack's cap on a message's `text`. The bodies above share a smaller
 # budget, so only a stop carrying many questions comes near it.
 _FALLBACK_TEXT_MAX = 40000
@@ -402,6 +405,10 @@ def build_interrupt_blocks(interrupts: Sequence[Interrupt]) -> list[dict]:
 
     Returns:
         list[dict]: The Block Kit blocks for chat.postMessage.
+
+    Raises:
+        ValueError: If the stop's questions need more blocks than one
+            message holds.
     """
     blocks: list[dict] = []
     for index, interrupt in enumerate(interrupts):
@@ -460,6 +467,11 @@ def build_interrupt_blocks(interrupts: Sequence[Interrupt]) -> list[dict]:
                     },
                 }
             )
+    if len(blocks) > _MAX_BLOCKS:
+        raise ValueError(
+            f"{len(interrupts)} interrupts need {len(blocks)} blocks, "
+            f"more than the {_MAX_BLOCKS} one Slack message holds"
+        )
     return blocks
 
 
