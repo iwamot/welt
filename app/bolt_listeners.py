@@ -950,6 +950,10 @@ async def fetch_display_name(*, client: AsyncWebClient, user_id: str) -> str:
     """
     Fetch a user's display name for the pressed-button receipt.
 
+    The name is a decoration on the receipt line: the answer is already
+    recorded by the time it is asked for, so a lookup that fails for any
+    reason leaves the raw ID in place rather than failing the press.
+
     Args:
         client (AsyncWebClient): The Slack Web API client.
         user_id (str): The presser's Slack user ID.
@@ -959,12 +963,8 @@ async def fetch_display_name(*, client: AsyncWebClient, user_id: str) -> str:
             profile is unreadable (for example, an install that predates
             the users:read scope).
     """
-    try:
-        response = await client.users_info(user=user_id)
-    except SlackApiError:
-        logger.warning("Could not fetch the presser's profile", exc_info=True)
-        return user_id
-    return pick_display_name(response.get("user")) or user_id
+    names = await fetch_display_names(client, [user_id])
+    return names.get(user_id, user_id)
 
 
 async def report_reply_failure(
