@@ -21,7 +21,7 @@ The setup below assumes you already have an agent on AgentCore Runtime, or a [ma
      ghcr.io/iwamot/welt:latest
    ```
 
-   Welt picks up AWS credentials the standard SDK way. On your machine, pass them in as environment variables too (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` if you have one). Hosting it on AWS works the same way: supply the variables through the hosting environment (an ECS task definition, ...) and let its IAM role provide the AWS credentials. Either identity needs `bedrock-agentcore:InvokeAgentRuntime`, and `bedrock-agentcore:InvokeAgentRuntimeForUser` because Welt sends the verified Slack user as the [`runtimeUserId`](wire.md#session-and-identity).
+   Welt picks up AWS credentials the standard SDK way. The container cannot see your local profile, so pass them in as environment variables too, or let the hosting environment's IAM role provide them on AWS. Either identity needs `bedrock-agentcore:InvokeAgentRuntime`, and `bedrock-agentcore:InvokeAgentRuntimeForUser` because Welt sends the verified Slack user as the [`runtimeUserId`](wire.md#session-and-identity).
 
 ## Notes
 
