@@ -44,7 +44,7 @@ The setup below assumes you already have an agent on AgentCore Runtime, or a [ma
      socket_mode_enabled: false
    ```
 
-   After saving, a warning above the manifest reports that the request URL isn't verified — click **Click here to verify**. The function answers Slack's challenge, which is why it is deployed before this step.
+   After saving, Slack reports that the request URL isn't verified and offers to verify it; do so. The function answers Slack's challenge, which is why it is deployed before this step.
 
 ## Notes
 

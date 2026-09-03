@@ -80,7 +80,7 @@ Either way, restart Welt with `AGENT_ARN` set:
 AGENT_ARN=arn:aws:bedrock-agentcore:...
 ```
 
-Welt now picks up your AWS credentials the standard SDK way — environment variables, `AWS_PROFILE`, an SSO session — and that identity needs permission to invoke the target: `bedrock-agentcore:InvokeAgentRuntime` and `bedrock-agentcore:InvokeAgentRuntimeForUser` on a runtime agent (Welt sends the verified Slack user as the [`runtimeUserId`](docs/wire.md#session-and-identity)), or `bedrock-agentcore:InvokeHarness` on a harness.
+Welt now picks up your AWS credentials the standard SDK way, and that identity needs permission to invoke the target: `bedrock-agentcore:InvokeAgentRuntime` and `bedrock-agentcore:InvokeAgentRuntimeForUser` on a runtime agent (Welt sends the verified Slack user as the [`runtimeUserId`](docs/wire.md#session-and-identity)), or `bedrock-agentcore:InvokeHarness` on a harness.
 
 **Welt** then goes to one of two places, whichever the agent is:
 
