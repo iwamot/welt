@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from app.message_logic import build_slack_user_prefixed_text, build_tool_use_task_chunk
+from app.message_logic import (
+    build_slack_user_prefixed_text,
+    build_tool_use_task_chunk,
+    tool_chunks,
+)
+from app.stream_logic import ToolUse
 
 
 @pytest.mark.parametrize(
@@ -56,3 +61,39 @@ def test_task_chunk_title_is_truncated_to_chunk_limit():
     )
 
     assert len(result["title"]) == 256
+
+
+# --- tool_chunks --------------------------------------------------------------
+
+
+def test_tool_chunks_are_empty_when_nothing_changed():
+    assert tool_chunks() == []
+
+
+def test_tool_chunks_open_a_started_tool():
+    assert tool_chunks(started=ToolUse(name="search", tool_use_id="t1")) == [
+        {
+            "type": "task_update",
+            "id": "t1",
+            "title": "Using search",
+            "status": "in_progress",
+        }
+    ]
+
+
+def test_tool_chunks_close_the_completed_tool_before_opening_the_next():
+    chunks = tool_chunks(
+        completed=ToolUse(name="search", tool_use_id="t1"),
+        started=ToolUse(name="fetch", tool_use_id="t2"),
+    )
+
+    assert [(c["id"], c["status"]) for c in chunks] == [
+        ("t1", "complete"),
+        ("t2", "in_progress"),
+    ]
+
+
+def test_tool_chunks_mark_a_failed_tool_as_an_error():
+    chunks = tool_chunks(completed=ToolUse(name="search", tool_use_id="t1"), error=True)
+
+    assert [(c["id"], c["status"]) for c in chunks] == [("t1", "error")]

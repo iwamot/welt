@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import pytest
+from slack_bolt.authorization import AuthorizeResult
+from slack_bolt.context.base_context import BaseContext
 
+from app.converse_logic import sanitize_document_name
 from app.slack_file_logic import (
     MAX_BYTES_BY_MODALITY,
     MAX_DOWNLOAD_ATTEMPTS,
     MAX_SLOTS_BY_MODALITY,
     FileToFetch,
+    Modality,
+    build_file_block,
     expected_content_types,
     is_retryable_status,
     parse_file_input_modalities,
     retry_delay_seconds,
+    select_files_for_replies,
     select_files_to_fetch,
 )
 
@@ -349,3 +355,92 @@ def test_replies_without_files_are_skipped():
 
 def test_non_dict_file_entry_is_skipped():
     assert _select([{"user": "U1", "files": ["x"]}]) == []
+
+
+# --- select_files_for_replies -------------------------------------------------
+
+
+def _context(bot_scopes: list[str] | None) -> BaseContext:
+    return BaseContext(
+        bot_user_id="U_BOT",
+        authorize_result=None
+        if bot_scopes is None
+        else AuthorizeResult(
+            bot_scopes=bot_scopes, enterprise_id="dummy_eid", team_id="dummy_tid"
+        ),
+    )
+
+
+def test_select_files_for_replies_is_off_with_no_modalities():
+    replies = [{"user": "U1", "files": [_file("F1", "image/png")]}]
+
+    assert (
+        select_files_for_replies(
+            _context(["files:read"]), replies, allowed_modalities=()
+        )
+        == []
+    )
+
+
+def test_select_files_for_replies_needs_the_files_read_scope():
+    replies = [{"user": "U1", "files": [_file("F1", "image/png")]}]
+
+    for scopes in (None, ["chat:write"]):
+        assert (
+            select_files_for_replies(
+                _context(scopes), replies, allowed_modalities=ALL_MODALITIES
+            )
+            == []
+        )
+
+
+def test_select_files_for_replies_selects_with_the_context_bot():
+    replies = [
+        {"user": "U_BOT", "files": [_file("F_BOT", "image/png")]},
+        {"user": "U1", "files": [_file("F1", "image/png"), _file("F2", "video/mp4")]},
+    ]
+
+    selected = select_files_for_replies(
+        _context(["files:read"]), replies, allowed_modalities=("image",)
+    )
+
+    assert [s.file_id for s in selected] == ["F1"]
+
+
+# --- build_file_block ---------------------------------------------------------
+
+
+def _selection(modality: Modality, fmt: str, name: str | None = None) -> FileToFetch:
+    return FileToFetch(
+        file_id="F1",
+        url="https://files.slack.com/F1",
+        modality=modality,
+        format=fmt,
+        name=name,
+    )
+
+
+def test_build_file_block_shapes_an_image():
+    assert build_file_block(_selection("image", "png"), data_base64="AAAA") == {
+        "image": {"format": "png", "source": {"bytes": "AAAA"}}
+    }
+
+
+def test_build_file_block_shapes_a_video():
+    assert build_file_block(_selection("video", "mp4"), data_base64="AAAA") == {
+        "video": {"format": "mp4", "source": {"bytes": "AAAA"}}
+    }
+
+
+def test_build_file_block_shapes_a_document_under_its_name():
+    block = build_file_block(
+        _selection("document", "pdf", "spec.pdf"), data_base64="AAAA"
+    )
+
+    assert block == {
+        "document": {
+            "format": "pdf",
+            "name": sanitize_document_name("spec.pdf"),
+            "source": {"bytes": "AAAA"},
+        }
+    }

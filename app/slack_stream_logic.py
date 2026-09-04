@@ -12,6 +12,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from slack_sdk.errors import SlackApiError
+from slack_sdk.web.async_slack_response import AsyncSlackResponse
+
+
+def is_message_too_long(error: SlackApiError) -> bool:
+    """
+    Tell whether a stream call failed because the message is full.
+
+    Args:
+        error (SlackApiError): The error the chat stream call raised.
+
+    Returns:
+        bool: True if Slack answered `msg_too_long`; False for any other
+            failure, including one that never carried a response.
+    """
+    if not isinstance(error.response, AsyncSlackResponse):
+        return False
+    reason = error.response.get("error")
+    return isinstance(reason, str) and reason == "msg_too_long"
+
 
 def note_after_reply(text: str) -> str:
     """

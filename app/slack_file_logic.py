@@ -2,8 +2,9 @@
 
 The actual download is I/O (`slack_file_service`); this module only inspects
 Slack file metadata, applies the allowed-modality configuration
-(`FILE_INPUT_MODALITIES`), and judges a failed download's worth of another
-attempt, so it can be covered by fixture-driven tests.
+(`FILE_INPUT_MODALITIES`), judges a failed download's worth of another
+attempt, and shapes a downloaded file into its wire block, so it can be
+covered by fixture-driven tests.
 """
 
 from __future__ import annotations
@@ -11,6 +12,16 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import Literal
+
+from slack_bolt.context.base_context import BaseContext
+
+from app.bolt_logic import has_read_files_scope
+from app.converse_logic import (
+    ContentBlock,
+    build_document_block,
+    build_image_block,
+    build_video_block,
+)
 
 Modality = Literal["image", "document", "video"]
 
@@ -285,3 +296,59 @@ def _resolve_format(
         if modality in allowed_modalities and mime_type in mime_types:
             return file_format, modality
     return None
+
+
+def select_files_for_replies(
+    context: BaseContext,
+    replies: list[dict],
+    *,
+    allowed_modalities: tuple[Modality, ...],
+) -> list[FileToFetch]:
+    """
+    Choose the files the replies carry, if file input is enabled.
+
+    Nothing is downloaded here: the thread is still to be trimmed to one
+    payload, and a file that does not survive that is never fetched.
+
+    Args:
+        context (BaseContext): The Bolt context object.
+        replies (list[dict]): Slack replies in chronological order.
+        allowed_modalities (tuple[Modality, ...]): The modalities to accept
+            (`Env.file_input_modalities`); empty disables file input.
+
+    Returns:
+        list[FileToFetch]: The eligible files.
+    """
+    if not allowed_modalities:
+        return []
+    if not has_read_files_scope(context.authorize_result):
+        return []
+    return select_files_to_fetch(
+        replies,
+        bot_user_id=context.bot_user_id,
+        allowed_modalities=allowed_modalities,
+        max_slots_by_modality=MAX_SLOTS_BY_MODALITY,
+        max_bytes_by_modality=MAX_BYTES_BY_MODALITY,
+    )
+
+
+def build_file_block(selection: FileToFetch, *, data_base64: str) -> ContentBlock:
+    """
+    Shape a downloaded file into the wire block its modality calls for.
+
+    Args:
+        selection (FileToFetch): The file, as selected for download.
+        data_base64 (str): The downloaded content, base64-encoded.
+
+    Returns:
+        ContentBlock: The image, video, or document block for the JSON wire.
+    """
+    if selection.modality == "image":
+        return build_image_block(image_format=selection.format, data_base64=data_base64)
+    if selection.modality == "video":
+        return build_video_block(video_format=selection.format, data_base64=data_base64)
+    return build_document_block(
+        document_format=selection.format,
+        name=selection.name,
+        data_base64=data_base64,
+    )
