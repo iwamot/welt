@@ -31,7 +31,6 @@ from app.bolt_logic import (
     MAX_THREAD_REPLIES,
     determine_thread_ts_to_reply,
     extract_user_id_from_context,
-    has_read_files_scope,
     is_post_from_bot,
     is_post_in_dm,
     is_post_mentioned,
@@ -57,15 +56,9 @@ from app.interrupt_logic import (
     record_answer,
     replace_answered_blocks,
 )
-from app.message_logic import build_tool_use_task_chunk
+from app.message_logic import tool_chunks
 from app.payload_logic import MAX_PAYLOAD_BYTES, compact_to_payload_budget
-from app.slack_file_logic import (
-    MAX_BYTES_BY_MODALITY,
-    MAX_SLOTS_BY_MODALITY,
-    FileToFetch,
-    Modality,
-    select_files_to_fetch,
-)
+from app.slack_file_logic import FileToFetch, select_files_for_replies
 from app.slack_file_service import fetch_file_blocks
 from app.slack_reaction_service import WaitingReaction
 from app.slack_stream_logic import note_after_reply
@@ -392,40 +385,6 @@ async def get_thread_replies(
     return response.get("messages", [])
 
 
-def select_files_for_replies(
-    context: BaseContext,
-    replies: list[dict],
-    *,
-    allowed_modalities: tuple[Modality, ...],
-) -> list[FileToFetch]:
-    """
-    Choose the files the replies carry, if file input is enabled.
-
-    Nothing is downloaded here: the thread is still to be trimmed to one
-    payload, and a file that does not survive that is never fetched.
-
-    Args:
-        context (BaseContext): The Bolt context object.
-        replies (list[dict]): Slack replies in chronological order.
-        allowed_modalities (tuple[Modality, ...]): The modalities to accept
-            (`Env.file_input_modalities`); empty disables file input.
-
-    Returns:
-        list[FileToFetch]: The eligible files.
-    """
-    if not allowed_modalities:
-        return []
-    if not has_read_files_scope(context.authorize_result):
-        return []
-    return select_files_to_fetch(
-        replies,
-        bot_user_id=context.bot_user_id,
-        allowed_modalities=allowed_modalities,
-        max_slots_by_modality=MAX_SLOTS_BY_MODALITY,
-        max_bytes_by_modality=MAX_BYTES_BY_MODALITY,
-    )
-
-
 # Slack IDs to the names their profiles show, kept for as long as the process
 # lives. A name is read once and used for every thread after: a workspace's
 # names change rarely, and the reply path is no place to keep asking. A
@@ -606,53 +565,27 @@ async def stream_agent_reply_to_slack(
             if active_tool is not None and event.tool_use_id == active_tool.tool_use_id:
                 if fills_in_tool_name(active=active_tool, event=event):
                     active_tool = event
-                    await streamer.append(chunks=_tool_chunks(started=event))
+                    await streamer.append(chunks=tool_chunks(started=event))
                 continue
-            chunks = _tool_chunks(completed=active_tool, started=event)
+            chunks = tool_chunks(completed=active_tool, started=event)
             active_tool = event
             await streamer.append(chunks=chunks)
             continue
         if isinstance(event, ToolResult):
             if active_tool is not None and event.tool_use_id == active_tool.tool_use_id:
                 await streamer.append(
-                    chunks=_tool_chunks(completed=active_tool, error=event.error)
+                    chunks=tool_chunks(completed=active_tool, error=event.error)
                 )
                 active_tool = None
             continue
         if active_tool is not None:
-            await streamer.append(chunks=_tool_chunks(completed=active_tool))
+            await streamer.append(chunks=tool_chunks(completed=active_tool))
             active_tool = None
         await streamer.append(markdown_text=event.text)
     await streamer.stop(
-        chunks=_tool_chunks(completed=active_tool) if active_tool else None
+        chunks=tool_chunks(completed=active_tool) if active_tool else None
     )
     return interrupts
-
-
-def _tool_chunks(
-    *,
-    completed: ToolUse | None = None,
-    started: ToolUse | None = None,
-    error: bool = False,
-) -> list[dict]:
-    chunks: list[dict] = []
-    if completed is not None:
-        chunks.append(
-            build_tool_use_task_chunk(
-                tool_use_id=completed.tool_use_id,
-                tool_name=completed.name,
-                status="error" if error else "complete",
-            )
-        )
-    if started is not None:
-        chunks.append(
-            build_tool_use_task_chunk(
-                tool_use_id=started.tool_use_id,
-                tool_name=started.name,
-                status="in_progress",
-            )
-        )
-    return chunks
 
 
 async def respond_to_interrupt_action(

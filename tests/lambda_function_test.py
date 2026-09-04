@@ -1,3 +1,14 @@
-import lambda_function
+from __future__ import annotations
 
-_ = lambda_function  # Mark import as used so static analysis tools do not flag it.
+from slack_bolt import Ack
+
+from lambda_function import just_ack
+
+
+def test_just_ack_answers_at_once():
+    ack = Ack()
+
+    just_ack(ack)
+
+    assert ack.response is not None
+    assert ack.response.status == 200

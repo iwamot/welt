@@ -17,18 +17,14 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.models.messages.chunk import MarkdownTextChunk
 from slack_sdk.web.async_chat_stream import AsyncChatStream
 from slack_sdk.web.async_client import AsyncWebClient
-from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
-from app.slack_stream_logic import PendingAppends, note_after_reply
+from app.slack_stream_logic import (
+    PendingAppends,
+    is_message_too_long,
+    note_after_reply,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def _is_message_too_long(error: SlackApiError) -> bool:
-    if not isinstance(error.response, AsyncSlackResponse):
-        return False
-    reason = error.response.get("error")
-    return isinstance(reason, str) and reason == "msg_too_long"
 
 
 class RotatingChatStream:
@@ -94,7 +90,7 @@ class RotatingChatStream:
         try:
             await self._append_to_streamer(markdown_text=markdown_text, chunks=chunks)
         except SlackApiError as error:
-            if not _is_message_too_long(error):
+            if not is_message_too_long(error):
                 raise
             await self._rotate()
 
@@ -131,7 +127,7 @@ class RotatingChatStream:
         try:
             await self._streamer.stop(markdown_text=markdown_text, chunks=chunks)
         except SlackApiError as error:
-            if not _is_message_too_long(error):
+            if not is_message_too_long(error):
                 raise
             await self._rotate()
             await self._require_streamer().stop()

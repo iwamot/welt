@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 
+from app.stream_logic import ToolUse
+
 # What Slack calls a person or an app. Anything else standing where one
 # does is a name already — an incoming webhook posts under one.
 _SLACK_ID = re.compile(r"[UW][A-Z0-9]{2,}")
@@ -60,3 +62,41 @@ def build_tool_use_task_chunk(
         "title": title[:TASK_CHUNK_TITLE_MAX_LENGTH],
         "status": status,
     }
+
+
+def tool_chunks(
+    *,
+    completed: ToolUse | None = None,
+    started: ToolUse | None = None,
+    error: bool = False,
+) -> list[dict]:
+    """
+    Build the task_update chunks for a change in which tool is running.
+
+    Args:
+        completed (ToolUse | None): The tool that just finished, if one did.
+        started (ToolUse | None): The tool that just started, if one did.
+        error (bool): Whether the completed tool failed.
+
+    Returns:
+        list[dict]: The chunks, the completed tool's first: at most one to
+            close its task and one to open the next.
+    """
+    chunks: list[dict] = []
+    if completed is not None:
+        chunks.append(
+            build_tool_use_task_chunk(
+                tool_use_id=completed.tool_use_id,
+                tool_name=completed.name,
+                status="error" if error else "complete",
+            )
+        )
+    if started is not None:
+        chunks.append(
+            build_tool_use_task_chunk(
+                tool_use_id=started.tool_use_id,
+                tool_name=started.name,
+                status="in_progress",
+            )
+        )
+    return chunks

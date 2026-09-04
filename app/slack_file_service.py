@@ -14,15 +14,11 @@ import logging
 import aiohttp
 from slack_sdk.errors import SlackApiError
 
-from app.converse_logic import (
-    ContentBlock,
-    build_document_block,
-    build_image_block,
-    build_video_block,
-)
+from app.converse_logic import ContentBlock
 from app.slack_file_logic import (
     MAX_DOWNLOAD_ATTEMPTS,
     FileToFetch,
+    build_file_block,
     expected_content_types,
     is_retryable_status,
     retry_delay_seconds,
@@ -86,7 +82,7 @@ async def fetch_file_blocks(
             if selection.format == "pdf" and not content.startswith(PDF_MAGIC_PREFIX):
                 logger.warning(f"Skipped invalid PDF (url: {selection.url})")
                 return None
-            return _build_block(
+            return build_file_block(
                 selection, data_base64=base64.b64encode(content).decode("utf-8")
             )
 
@@ -105,18 +101,6 @@ async def fetch_file_blocks(
         for selection, task in zip(selections, tasks, strict=True)
         if (block := task.result()) is not None
     }
-
-
-def _build_block(selection: FileToFetch, *, data_base64: str) -> ContentBlock:
-    if selection.modality == "image":
-        return build_image_block(image_format=selection.format, data_base64=data_base64)
-    if selection.modality == "video":
-        return build_video_block(video_format=selection.format, data_base64=data_base64)
-    return build_document_block(
-        document_format=selection.format,
-        name=selection.name,
-        data_base64=data_base64,
-    )
 
 
 async def _download_slack_file(
