@@ -44,6 +44,14 @@ PDF_MAGIC_PREFIX = b"%PDF-"
 # 18,750,000 bytes, still arrives on a line holding 1.25 Mbps.
 _DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(total=120, sock_connect=10, sock_read=10)
 
+# How many of a thread's files are downloaded at once. One at a time, a
+# thread full of attachments waits on each in turn; all at once opens as
+# many connections to Slack's file host as there are files. The host is not
+# a Web API method with a documented rate tier, so the number is Welt's
+# own: a few in flight bounds the wait by the slowest file rather than the
+# sum, without a burst on the host.
+MAX_CONCURRENT_DOWNLOADS = 5
+
 
 class _TransientDownloadError(SlackApiError):
     """A download failure a further attempt could still get past."""
@@ -62,24 +70,41 @@ async def fetch_file_blocks(
     Returns:
         dict[str, ContentBlock]: Content blocks keyed by Slack file ID.
     """
-    blocks: dict[str, ContentBlock] = {}
     if not selections:
-        return blocks
+        return {}
+    slots = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
     async with aiohttp.ClientSession() as session:
-        for selection in selections:
-            content = await _download_slack_file(
-                session=session,
-                url=selection.url,
-                bot_token=bot_token,
-                expected_content_types=expected_content_types(selection.format),
-            )
+
+        async def fetch(selection: FileToFetch) -> ContentBlock | None:
+            async with slots:
+                content = await _download_slack_file(
+                    session=session,
+                    url=selection.url,
+                    bot_token=bot_token,
+                    expected_content_types=expected_content_types(selection.format),
+                )
             if selection.format == "pdf" and not content.startswith(PDF_MAGIC_PREFIX):
                 logger.warning(f"Skipped invalid PDF (url: {selection.url})")
-                continue
-            blocks[selection.file_id] = _build_block(
+                return None
+            return _build_block(
                 selection, data_base64=base64.b64encode(content).decode("utf-8")
             )
-    return blocks
+
+        try:
+            async with asyncio.TaskGroup() as group:
+                tasks = [
+                    group.create_task(fetch(selection)) for selection in selections
+                ]
+        except ExceptionGroup as failures:
+            # The downloads are independent, so the first failure is the
+            # one the turn fails on, as it did when they ran one by one;
+            # the group adds only that the rest were cancelled with it.
+            raise failures.exceptions[0] from None
+    return {
+        selection.file_id: block
+        for selection, task in zip(selections, tasks, strict=True)
+        if (block := task.result()) is not None
+    }
 
 
 def _build_block(selection: FileToFetch, *, data_base64: str) -> ContentBlock:
