@@ -15,7 +15,7 @@ dependencies = [
     "slack-bolt==1.30.0",
     # Welt makes Slack Web API calls directly through AsyncWebClient, so it
     # depends on slack-sdk explicitly (not only transitively via slack-bolt).
-    "slack-sdk==3.44.0",
+    "slack-sdk==3.44.1",
     # Bolt's AsyncApp imports aiohttp at module load (its async web server).
     "aiohttp==3.14.3",
     # invoke_agent_runtime (AgentCore Runtime) is called through boto3.
