@@ -25,7 +25,7 @@ In the reply stream, each event is one `data: {json}` SSE line carrying a JSON o
 
 Welt keys each Slack thread to one AgentCore session and passes the verified caller identity:
 
-- **runtimeSessionId** — `slack_<team>_<channel>_<thread-ts>`, the timestamp's dot flattened to `-`, `_`-padded to the 33-character minimum. One thread (in channels and DMs alike) is one conversation, so an agent using AgentCore Memory continues the right one.
+- **runtimeSessionId** — `slack_<team>_<channel>_<thread-ts>`, the timestamp's dot flattened to `-`, `_`-padded to the 33-character minimum. One thread (in channels and DMs alike) is one conversation, so an agent using AgentCore Memory continues the right one. The dot goes because `InvokeHarness` allows only `[a-zA-Z0-9-_]` in a session id, and one shape serves both invoke APIs.
 - **runtimeUserId** — `slack:<team>:<user>`, the Slack user Welt has verified. The agent may trust it — for example as a Memory actor key — as long as only Welt's IAM role can invoke it. Local mode sends no user id; the SDK's local server has no header for it.
 
 The session id is also the correlation key across the boundary: it appears in Welt's own log lines, and AgentCore Observability carries it as the `session.id` attribute on the `InvokeAgentRuntime` span (and as `session_id` in the application logs), so a Slack thread and the agent's trace join without a separate identifier.
