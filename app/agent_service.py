@@ -63,13 +63,13 @@ _CLIENT_CONFIG = Config(read_timeout=60, retries={"mode": "standard"})
 # serves the same /invocations + SSE surface as the Runtime, on its default
 # port. http.client (rather than urllib) keeps a developer's HTTP_PROXY out
 # of the way — these requests must reach localhost directly.
-_LOCAL_AGENT_HOST = "localhost"
-_LOCAL_AGENT_PORT = 8080
-LOCAL_AGENT_URL = f"http://{_LOCAL_AGENT_HOST}:{_LOCAL_AGENT_PORT}"
+LOCAL_AGENT_HOST = "localhost"
+LOCAL_AGENT_PORT = 8080
+LOCAL_AGENT_URL = f"http://{LOCAL_AGENT_HOST}:{LOCAL_AGENT_PORT}"
 
 # The socket timeout plays the same role as the boto3 read timeout above:
 # it bounds each blocking read, not the whole reply.
-_LOCAL_TIMEOUT = 60
+LOCAL_AGENT_TIMEOUT = 60
 
 
 def init_client(*, region_name: str) -> None:
@@ -269,7 +269,7 @@ async def _stream_local_events(
     *, payload: dict, session_id: str
 ) -> AsyncIterator[RenderEvent]:
     connection = http.client.HTTPConnection(
-        _LOCAL_AGENT_HOST, _LOCAL_AGENT_PORT, timeout=_LOCAL_TIMEOUT
+        LOCAL_AGENT_HOST, LOCAL_AGENT_PORT, timeout=LOCAL_AGENT_TIMEOUT
     )
 
     def invoke() -> http.client.HTTPResponse:

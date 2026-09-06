@@ -210,6 +210,14 @@ The id goes in the header rather than the body, where it would show up as a payl
 
 Read the `data:` lines for what the events carry beyond what Welt reads. Extra fields cost bytes on every event and are the one thing the Slack side cannot show you.
 
+For what Welt reads, run `wire_check.py` from Welt's repository against the same local agent. It builds the request the way Welt does and reads the reply through Welt's own parser, so every event is printed next to what Welt would render for it, and an event Welt renders nothing for is marked ignored — the thread, by contrast, would show nothing at all. An interrupt ends the run with its id and the session id, since resuming is a second request carrying the answers alone; answer it with a second run, `--answer` for an option's value (as JSON) and `--input` for typed text:
+
+```sh
+uv run wire_check.py "what time is it?"
+uv run wire_check.py --file report.pdf "summarize this"
+uv run wire_check.py --resume <session id> --answer <interrupt id>='"Canary first"'
+```
+
 ## Limits
 
 Inbound, Welt never embeds more than this per conversation:

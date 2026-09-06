@@ -84,7 +84,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["main", "lambda_function", "app"]
+source = ["main", "lambda_function", "wire_check", "app"]
 branch = true
 
 [tool.coverage.report]
