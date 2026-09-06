@@ -178,7 +178,7 @@ def require_env(environ: Mapping[str, str], name: str) -> str:
 
 def _get_int(environ: Mapping[str, str], name: str, default: int) -> int:
     value = environ.get(name)
-    if value is None:
+    if not value:
         return default
     try:
         return int(value)

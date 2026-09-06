@@ -126,6 +126,11 @@ def test_non_integer_buffer_size_is_rejected():
         load_env({**_REQUIRED, "SLACK_STREAM_BUFFER_SIZE": "many"})
 
 
+def test_empty_buffer_size_falls_back_to_the_default():
+    env = load_env({**_REQUIRED, "SLACK_STREAM_BUFFER_SIZE": ""})
+    assert env.slack_stream_buffer_size == 256
+
+
 @pytest.mark.parametrize("value", ["0", "-1"])
 def test_buffer_size_below_one_is_rejected(value: str):
     with pytest.raises(ValueError, match="SLACK_STREAM_BUFFER_SIZE must be at"):
