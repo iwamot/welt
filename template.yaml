@@ -39,6 +39,12 @@ Resources:
       MemorySize: 512
       # Execution is bounded by Lambda's 15-minute cap; give replies all of it.
       Timeout: 900
+      # Bolt re-invokes this function asynchronously to run the lazy listener.
+      # Lambda retries a failed asynchronous invocation twice by default, which
+      # would send the same turn to the agent again; a reply that failed or hit
+      # the cap is not worth repeating.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
       FunctionUrlConfig:
         # Slack requests are authenticated by signature verification with the
         # signing secret, not by the Function URL.

@@ -48,7 +48,7 @@ The setup below assumes you already have an agent on AgentCore Runtime, or a [ma
 
 ## Notes
 
-- Agent replies are bounded by Lambda's 15-minute cap.
+- Agent replies are bounded by Lambda's 15-minute cap, and a reply that hits it is not retried.
 - The optional variables in [Configuration](../README.md#configuration) go under `Environment.Variables` in `template.yaml`.
 - `sam build && sam deploy` redeploys after a change.
 - `sam delete` removes everything the setup created.
