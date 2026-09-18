@@ -11,6 +11,6 @@ jobs:
   compatibility:
     permissions:
       contents: read
-    uses: iwamot/workflows/.github/workflows/compatibility-python.yml@6dd705693b7a451242519165c90446d73a6870c8 # v8.10.0
+    uses: iwamot/workflows/.github/workflows/compatibility-python.yml@866cf6089ddb88af6b479a14a4a78910b472b5f6 # v8.11.0
     with:
       python-versions: '["3.12","3.13","3.14"]'
