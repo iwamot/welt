@@ -1,6 +1,6 @@
 FROM dhi.io/python:3.14.8-debian13-dev@sha256:8592b76e5f4433ba868e2f6804789c27332dc8bb0ee3fe5c9e9fee304154461c AS builder
 WORKDIR /build/
-COPY --from=dhi.io/uv:0.12.21-debian13-dev@sha256:c1b4056237c0212a21e6a8d8b5576d07d196e8d05cccfe4d8d4fb98216b54e55 /uv /usr/local/bin/uv
+COPY --from=dhi.io/uv:0.12.22-debian13-dev@sha256:051d45fa34a3c6ec2ff5424931199c0de74db075cd439dcb9eaa0a9d054bc8f0 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock /build/
 RUN uv sync --frozen --no-dev
 
