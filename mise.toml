@@ -5,9 +5,6 @@ experimental = true
 lockfile = true
 minimum_release_age = "1d"
 
-[tool_config]
-locked = true
-
 [tools]
 python = "3.15.1"
 "aqua:astral-sh/ruff" = "0.17.2"
