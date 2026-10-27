@@ -12,7 +12,12 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from app.agent_logic import is_harness_arn, parse_arn_region, split_endpoint_arn
+from app.agent_logic import (
+    is_harness_arn,
+    parse_arn_region,
+    parse_gateway_region,
+    split_endpoint_arn,
+)
 from app.slack_file_logic import Modality, parse_file_input_modalities
 
 
@@ -24,13 +29,11 @@ class Env:
     # invoke API (invoke_agent_runtime / invoke_harness) by the resource kind.
     # An endpoint ARN of either kind is split on load: the resource ARN
     # stays here and the endpoint name goes to `agent_qualifier`, the way
-    # both invoke APIs take them. None (AGENT_ARN unset) is local mode, for development:
-    # Welt invokes an agent served locally by the AgentCore SDK over plain
-    # HTTP instead.
+    # both invoke APIs take them. None selects URL-only Gateway mode when
+    # agent_gateway_url is set, or local HTTP mode when it is unset.
     agent_arn: str | None
-    # The agent's region, taken from the ARN; the bedrock-agentcore client
-    # targets it directly, so no separate region setting exists. None exactly
-    # when `agent_arn` is None — local mode has no region.
+    # The signing region, taken from the ARN or, in URL-only mode, from the
+    # Gateway URL. None means local HTTP mode, which needs no AWS client.
     agent_region: str | None
     # The endpoint `agent_arn` named, sent as the `qualifier` both invoke
     # APIs take. None sends no qualifier at all, which AgentCore resolves to
@@ -79,11 +82,11 @@ def load_env(environ: Mapping[str, str]) -> Env:
     Args:
         environ (Mapping[str, str]): The process environment (`os.environ`).
 
-    An unset (or empty, like the other optional variables) AGENT_ARN is
-    local mode: the agent runs on this machine instead of AgentCore, so no
-    ARN exists to configure. A forgotten AGENT_ARN thus boots into local
-    mode, which nothing here refuses; `agent_service.log_local_mode` names
-    the target URL in the log instead.
+    With AGENT_GATEWAY_URL alone, Welt addresses the Gateway over signed
+    HTTP and derives its signing region from that URL. With AGENT_ARN too,
+    Welt uses the Runtime SDK's endpoint-override mode. With neither set,
+    Welt invokes the local agent over HTTP; `agent_service.log_local_mode`
+    names that target URL in the log.
 
     AGENT_ARN carries the endpoint too: an ARN that names one
     (`.../runtime-endpoint/<name>`, `.../harness-endpoint/<name>`) is split
@@ -104,10 +107,18 @@ def load_env(environ: Mapping[str, str]) -> Env:
             malformed.
     """
     agent_arn = environ.get("AGENT_ARN") or None
+    agent_gateway_url = environ.get("AGENT_GATEWAY_URL") or None
     arn_endpoint: str | None = None
     if agent_arn is None:
         agent_region = None
         harness = False
+        if agent_gateway_url is not None:
+            agent_region = parse_gateway_region(agent_gateway_url)
+            if agent_region is None:
+                raise ValueError(
+                    "AGENT_GATEWAY_URL must be an HTTPS AgentCore Gateway URL "
+                    "including a region when AGENT_ARN is unset"
+                )
     else:
         agent_region = parse_arn_region(agent_arn)
         if agent_region is None:
@@ -125,15 +136,11 @@ def load_env(environ: Mapping[str, str]) -> Env:
         )
     # boot_warnings stays in ascending variable-name order.
     boot_warnings: list[str] = []
-    agent_gateway_url = environ.get("AGENT_GATEWAY_URL") or None
-    if agent_gateway_url is not None:
-        if agent_arn is None:
-            raise ValueError("AGENT_GATEWAY_URL requires AGENT_ARN")
-        if harness:
-            agent_gateway_url = None
-            boot_warnings.append(
-                "Ignoring AGENT_GATEWAY_URL: Gateway routing is for Runtime agents"
-            )
+    if agent_gateway_url is not None and harness:
+        agent_gateway_url = None
+        boot_warnings.append(
+            "Ignoring AGENT_GATEWAY_URL: Gateway routing is for Runtime agents"
+        )
     agent_manages_history = _get_bool(environ, "AGENT_MANAGES_HISTORY", harness)
     if harness and not agent_manages_history:
         agent_manages_history = True

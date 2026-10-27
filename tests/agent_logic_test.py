@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from app.agent_logic import (
     build_qualifier_kwargs,
     build_runtime_session_id,
     build_runtime_user_id,
     is_harness_arn,
     parse_arn_region,
+    parse_gateway_region,
     split_endpoint_arn,
 )
 
@@ -142,3 +145,30 @@ def test_runtime_endpoint_arn_with_an_empty_endpoint_is_left_alone():
     arn = f"{_RUNTIME_ARN}/runtime-endpoint/"
 
     assert split_endpoint_arn(arn) == (arn, None)
+
+
+@pytest.mark.parametrize(
+    ("url", "region"),
+    [
+        (
+            "https://my-gateway.gateway.bedrock-agentcore.ap-northeast-1.amazonaws.com/agent",
+            "ap-northeast-1",
+        ),
+        (
+            "https://my-gateway.gateway.bedrock-agentcore.cn-north-1.amazonaws.com.cn/agent/",
+            "cn-north-1",
+        ),
+        (
+            "http://my-gateway.gateway.bedrock-agentcore.us-west-2.amazonaws.com/agent",
+            None,
+        ),
+        ("https://example.com/agent", None),
+        ("https:///agent", None),
+        (
+            "https://my-gateway.gateway.bedrock-agentcore.us-west-2.amazonaws.com.example.com/agent",
+            None,
+        ),
+    ],
+)
+def test_gateway_signing_region_comes_from_its_aws_endpoint(url, region):
+    assert parse_gateway_region(url) == region

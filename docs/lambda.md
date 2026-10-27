@@ -22,7 +22,7 @@ The setup below assumes you already have an agent on AgentCore Runtime, or a [ma
 
    During `sam deploy --guided`:
 
-   - The stack parameters are `SlackBotToken` and `SlackSigningSecret` from step 1, and `AgentArn`.
+   - Set `SlackBotToken` and `SlackSigningSecret` from step 1. For the agent, set `AgentArn` for direct invocation, or `AgentGatewayUrl` and `GatewayArn` for [Gateway routing](gateway.md#welt-on-lambda). Supplying all three uses the Runtime SDK through the Gateway.
    - Answer `y` to `Allow SAM CLI IAM role creation` — the template creates the function's role.
    - Answer `y` to `WeltFunction Function Url has no authentication. Is this okay?` — it defaults to no, and Slack requests are verified with the signing secret instead.
    - Note the `FunctionUrl` stack output; the next step needs it.
@@ -48,7 +48,6 @@ The setup below assumes you already have an agent on AgentCore Runtime, or a [ma
 
 ## Notes
 
-- To route Runtime requests through a Gateway, follow [Routing a Runtime through AgentCore Gateway](gateway.md) and supply the `AgentGatewayUrl` and `GatewayArn` stack parameters during deployment.
 - Agent replies are bounded by Lambda's 15-minute cap, and a reply that hits it is not retried.
 - The optional variables in [Configuration](../README.md#configuration) go under `Environment.Variables` in `template.yaml`.
 - `sam build && sam deploy` redeploys after a change.

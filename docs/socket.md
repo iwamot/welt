@@ -25,7 +25,7 @@ The setup below assumes you already have an agent on AgentCore Runtime, or a [ma
 
 ## Notes
 
-- To route Runtime requests through a Gateway, follow [Routing a Runtime through AgentCore Gateway](gateway.md), pass `AGENT_GATEWAY_URL` to the container, and grant its AWS identity permission to invoke the Gateway.
+- To use a Gateway, replace `AGENT_ARN` in the container command with `AGENT_GATEWAY_URL`. Pass both to use the Runtime SDK through the Gateway. Grant the container's AWS identity `bedrock-agentcore:InvokeGateway` on that Gateway; [Gateway routing](gateway.md) covers its setup.
 - [Configuration](../README.md#configuration) lists the optional environment variables.
 - Running from source works the same way: `uv run --env-file .env main.py`, as in the Quick Start, with `AGENT_ARN` added to the `.env` file.
 - Running more than one replica is fine, during a rolling update or all the time. Slack's [Socket Mode guide](https://docs.slack.dev/apis/events-api/using-socket-mode/#connections) allows up to 10 open connections per app and says that "each payload may be sent to any of the connections", so no replica can count on receiving a given event. Welt keeps nothing per thread in the process: interrupt state lives in the Slack message, history is read back from the thread, and the session lives on AgentCore. Slack does not promise that a payload never reaches two connections, so if a repeated turn would matter, make the agent's side effects idempotent.

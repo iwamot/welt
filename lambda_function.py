@@ -69,13 +69,16 @@ def _get_handler() -> SlackRequestHandler:
     logger.setLevel(env.log_level)
     for warning in env.boot_warnings:
         logger.warning(warning)
-    # No region means no ARN: local mode (see Env.agent_region). On Lambda
-    # that can only be a forgotten AGENT_ARN; the log line names it, and
-    # the first invocation fails on the unreachable localhost.
+    # No signing region means neither an ARN nor a Gateway URL is set.
+    # Name the resulting local target in the log, including on Lambda.
     if env.agent_region is None:
         log_local_mode()
     else:
-        init_client(region_name=env.agent_region, gateway_url=env.agent_gateway_url)
+        init_client(
+            region_name=env.agent_region,
+            gateway_url=env.agent_gateway_url,
+            gateway_only=env.agent_arn is None,
+        )
     return SlackRequestHandler(app=create_bolt_app(env, signing_secret))
 
 

@@ -202,6 +202,7 @@ async def respond_to_new_post(
         events = stream_agent_events(
             agent_arn=env.agent_arn,
             agent_qualifier=env.agent_qualifier,
+            agent_gateway_url=env.agent_gateway_url,
             messages=messages,
             agent_manages_history=env.agent_manages_history,
             session_id=session_id,
@@ -766,6 +767,7 @@ async def respond_to_interrupt_action(
         events = stream_agent_resume_events(
             agent_arn=env.agent_arn,
             agent_qualifier=env.agent_qualifier,
+            agent_gateway_url=env.agent_gateway_url,
             interrupt_responses=build_interrupt_responses(updated),
             session_id=session_id,
             user_id=build_runtime_user_id(team_id=context.team_id, user_id=user_id),
