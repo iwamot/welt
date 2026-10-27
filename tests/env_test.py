@@ -267,9 +267,57 @@ def test_unset_or_empty_gateway_keeps_direct_runtime_invocation(extra):
     assert load_env({**_REQUIRED, **extra}).agent_gateway_url is None
 
 
-def test_a_gateway_requires_a_runtime_arn():
-    with pytest.raises(ValueError, match="AGENT_GATEWAY_URL requires AGENT_ARN"):
-        load_env({"SLACK_BOT_TOKEN": "xoxb-test", "AGENT_GATEWAY_URL": _GATEWAY_URL})
+@pytest.mark.parametrize("extra", [{}, {"AGENT_ARN": ""}])
+def test_a_gateway_can_be_invoked_without_a_runtime_arn(extra):
+    result = load_env(
+        {"SLACK_BOT_TOKEN": "xoxb-test", "AGENT_GATEWAY_URL": _GATEWAY_URL, **extra}
+    )
+
+    assert result.agent_gateway_url == _GATEWAY_URL
+    assert result.agent_arn is None
+    assert result.agent_region == "us-west-2"
+    assert result.agent_qualifier is None
+    assert result.agent_manages_history is False
+    assert result.boot_warnings == ()
+
+
+def test_a_gateway_without_an_arn_requires_a_signing_region_in_its_url():
+    with pytest.raises(ValueError, match="AGENT_GATEWAY_URL must be"):
+        load_env(
+            {
+                "SLACK_BOT_TOKEN": "xoxb-test",
+                "AGENT_GATEWAY_URL": "https://example.com/agent",
+            }
+        )
+
+
+def test_a_gateway_keeps_history_and_file_settings_without_an_arn():
+    result = load_env(
+        {
+            "SLACK_BOT_TOKEN": "xoxb-test",
+            "AGENT_GATEWAY_URL": _GATEWAY_URL,
+            "AGENT_MANAGES_HISTORY": "true",
+            "FILE_INPUT_MODALITIES": "image,document",
+        }
+    )
+
+    assert result.agent_manages_history is True
+    assert result.file_input_modalities == ("image", "document")
+    assert result.boot_warnings == ()
+
+
+def test_sdk_gateway_mode_keeps_the_endpoint_selected_by_the_arn():
+    result = load_env(
+        {
+            **_REQUIRED,
+            "AGENT_ARN": f"{_RUNTIME_ARN}/runtime-endpoint/prod",
+            "AGENT_GATEWAY_URL": _GATEWAY_URL,
+        }
+    )
+
+    assert result.agent_arn == _RUNTIME_ARN
+    assert result.agent_qualifier == "prod"
+    assert result.agent_gateway_url == _GATEWAY_URL
 
 
 def test_a_harness_ignores_the_runtime_gateway_with_a_warning():

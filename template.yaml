@@ -21,7 +21,8 @@ Parameters:
     Description: Slack signing secret (Basic Information > Signing Secret).
   AgentArn:
     Type: String
-    Description: ARN of the AgentCore Runtime agent or managed harness to invoke.
+    Default: ""
+    Description: ARN of the Runtime or harness; leave empty to use the Gateway URL alone.
 
   AgentGatewayUrl:
     Type: String
@@ -33,6 +34,13 @@ Parameters:
     Description: ARN of that Gateway, for the function's invocation permission.
 
 Rules:
+  AgentTarget:
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::Not: [Fn::Equals: [!Ref AgentArn, ""]]
+            - Fn::Not: [Fn::Equals: [!Ref AgentGatewayUrl, ""]]
+        AssertDescription: Set AgentArn or AgentGatewayUrl.
   GatewaySettings:
     Assertions:
       - Assert:
@@ -43,6 +51,7 @@ Rules:
 
 Conditions:
   UseGateway: !Not [!Equals [!Ref AgentGatewayUrl, ""]]
+  UseAgentArn: !Not [!Equals [!Ref AgentArn, ""]]
 
 Resources:
   WeltFunction:
@@ -92,27 +101,27 @@ Resources:
                 Action: bedrock-agentcore:InvokeGateway
                 Resource: !Ref GatewayArn
               - !Ref AWS::NoValue
-            - Effect: Allow
-              Action:
-                - bedrock-agentcore:InvokeAgentRuntime
-                # Welt passes runtimeUserId, which needs the ForUser action.
-                - bedrock-agentcore:InvokeAgentRuntimeForUser
-                - bedrock-agentcore:InvokeHarness
-              # The target itself and everything under it — its endpoints,
-              # which is where Runtime agents are invoked. The ARN is cut back
-              # to the resource name first, so an endpoint ARN copied from the
-              # console (.../runtime-endpoint/x, .../harness-endpoint/x) grants
-              # the same as the plain one.
-              Resource:
-                - !Join
-                  - /
-                  - - !Select [0, !Split ["/", !Ref AgentArn]]
-                    - !Select [1, !Split ["/", !Ref AgentArn]]
-                - !Join
-                  - /
-                  - - !Select [0, !Split ["/", !Ref AgentArn]]
-                    - !Select [1, !Split ["/", !Ref AgentArn]]
-                    - "*"
+            - !If
+              - UseAgentArn
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:InvokeAgentRuntime
+                  # Welt passes runtimeUserId, which needs the ForUser action.
+                  - bedrock-agentcore:InvokeAgentRuntimeForUser
+                  - bedrock-agentcore:InvokeHarness
+                # Strip any endpoint suffix so the resource and all of its
+                # endpoints receive the same permissions.
+                Resource:
+                  - !Join
+                    - /
+                    - - !Select [0, !Split ["/", !Ref AgentArn]]
+                      - !Select [1, !Split ["/", !Ref AgentArn]]
+                  - !Join
+                    - /
+                    - - !Select [0, !Split ["/", !Ref AgentArn]]
+                      - !Select [1, !Split ["/", !Ref AgentArn]]
+                      - "*"
+              - !Ref AWS::NoValue
 
 Outputs:
   FunctionUrl:

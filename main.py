@@ -47,11 +47,15 @@ async def main() -> None:
     logger.setLevel(env.log_level)
     for warning in env.boot_warnings:
         logger.warning(warning)
-    # No region means no ARN: local mode (see Env.agent_region).
+    # Local mode has neither an ARN nor a Gateway URL, so no signing region.
     if env.agent_region is None:
         log_local_mode()
     else:
-        init_client(region_name=env.agent_region, gateway_url=env.agent_gateway_url)
+        init_client(
+            region_name=env.agent_region,
+            gateway_url=env.agent_gateway_url,
+            gateway_only=env.agent_arn is None,
+        )
 
     app = create_bolt_app(env)
     handler = AsyncSocketModeHandler(app, slack_app_token)

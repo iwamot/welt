@@ -9,6 +9,9 @@ carries the verified Slack identity. The request payload lives in
 
 from __future__ import annotations
 
+import re
+from urllib.parse import urlsplit
+
 # runtimeSessionId constraints, taken as the intersection of the two invoke
 # APIs so one session ID format serves both: InvokeAgentRuntime allows 33-256
 # characters with no character-set restriction, InvokeHarness allows 33-100
@@ -145,3 +148,15 @@ def is_harness_arn(arn: str) -> bool:
     """
     parts = arn.split(":", 5)
     return len(parts) == 6 and parts[5].startswith("harness/")
+
+
+def parse_gateway_region(url: str) -> str | None:
+    """Extract the signing region from an HTTPS AgentCore Gateway URL."""
+    parsed = urlsplit(url)
+    if parsed.scheme != "https":
+        return None
+    match = re.fullmatch(
+        r"[^.]+\.gateway\.bedrock-agentcore\.([^.]+)\.amazonaws\.com(?:\.cn)?",
+        parsed.hostname or "",
+    )
+    return match.group(1) if match else None

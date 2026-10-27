@@ -1,13 +1,12 @@
 """I/O for invoking the agent and streaming its reply.
 
-Three invoke paths share one render-event surface, picked by the configured
-ARN: an AgentCore Runtime agent goes through `invoke_agent_runtime` (JSON
-payload in, SSE of wire events out), a managed harness through
-`invoke_harness` (typed Converse-shaped messages in, a typed event stream
-out), and no ARN at all — local mode, for development — through plain HTTP
-to the same `/invocations` + SSE surface the AgentCore SDK serves locally.
-The Runtime and local paths carry two payload envelopes — `messages` for a
-conversation turn, `interrupt_responses` to resume an interrupted run.
+The invoke paths share one render-event surface. A Runtime ARN uses
+`invoke_agent_runtime`, optionally with a Gateway endpoint override; a
+harness ARN uses `invoke_harness`. A Gateway URL without an ARN uses signed
+HTTP to its target's `/invocations` path. With neither configured, plain
+HTTP reaches the AgentCore SDK's local `/invocations` endpoint.
+Runtime, Gateway, and local agents receive `messages` for a conversation
+turn or `interrupt_responses` to resume an interrupted run.
 boto3 and http.client are synchronous, so the blocking invoke call and each
 blocking read of the response are pushed to a worker thread to keep the
 event loop free. A reply is not always read to its end — an error event, or
@@ -32,6 +31,7 @@ from botocore.exceptions import ReadTimeoutError
 
 from app.agent_logic import build_qualifier_kwargs, is_harness_arn
 from app.converse_logic import Message, keep_messages_after_last_assistant
+from app.gateway_service import GatewayClient
 from app.stream_logic import (
     RenderEvent,
     harness_final_stop_error,
@@ -48,6 +48,7 @@ class AgentSilenceTimeout(Exception):
 
 
 _client = None
+_gateway_client: GatewayClient | None = None
 
 # Welt puts no ceiling on how long a reply may take — that is between the
 # agent and AgentCore Runtime's own limits. Hang detection is the connection
@@ -72,7 +73,9 @@ LOCAL_AGENT_URL = f"http://{LOCAL_AGENT_HOST}:{LOCAL_AGENT_PORT}"
 LOCAL_AGENT_TIMEOUT = 60
 
 
-def init_client(*, region_name: str, gateway_url: str | None = None) -> None:
+def init_client(
+    *, region_name: str, gateway_url: str | None = None, gateway_only: bool = False
+) -> None:
     """
     Create the shared bedrock-agentcore client.
 
@@ -82,22 +85,28 @@ def init_client(*, region_name: str, gateway_url: str | None = None) -> None:
     never races between worker threads.
 
     Args:
-        region_name (str): The agent's region (`Env.agent_region`, taken
-            from AGENT_ARN), so the client targets the agent regardless of
-            any ambient AWS region configuration.
-        gateway_url (str | None): IAM-authenticated Gateway target base URL
-            in the same region, or None to invoke Runtime directly.
+        region_name (str): The signing region (`Env.agent_region`), derived
+            from the ARN or Gateway URL instead of ambient configuration.
+        gateway_url (str | None): IAM-authenticated Gateway target base URL,
+            or None to invoke Runtime directly.
+        gateway_only (bool): Whether no ARN is configured, selecting signed
+            HTTP instead of the Runtime SDK's endpoint-override mode.
 
     Returns:
         None
     """
-    global _client
-    _client = boto3.client(
-        "bedrock-agentcore",
-        region_name=region_name,
-        endpoint_url=gateway_url,
-        config=_CLIENT_CONFIG,
-    )
+    global _client, _gateway_client
+    _client = None
+    _gateway_client = None
+    if gateway_only and gateway_url is not None:
+        _gateway_client = GatewayClient(url=gateway_url, region_name=region_name)
+    else:
+        _client = boto3.client(
+            "bedrock-agentcore",
+            region_name=region_name,
+            endpoint_url=gateway_url,
+            config=_CLIENT_CONFIG,
+        )
 
 
 def _get_client():
@@ -110,18 +119,17 @@ def log_local_mode() -> None:
     """
     Announce local mode, once at startup.
 
-    Local mode's counterpart to `init_client`: an unset AGENT_ARN falls
-    into local mode whether or not that was meant, so this log line names
-    the target URL — the trace to look for when AGENT_ARN was merely
-    forgotten. No probe beyond that: the agent may start, stop, or be
-    swapped while Welt runs, and an unreachable one surfaces as a failed
-    reply.
+    Local mode's counterpart to `init_client`: with neither an ARN nor a
+    Gateway URL configured, this log line names the local target. The agent
+    may start, stop, or be swapped while Welt runs, and an unreachable one
+    surfaces as a failed reply.
 
     Returns:
         None
     """
     logger.info(
-        "AGENT_ARN is not set — invoking the local agent at %s", LOCAL_AGENT_URL
+        "AGENT_ARN and AGENT_GATEWAY_URL are not set — invoking the local agent at %s",
+        LOCAL_AGENT_URL,
     )
 
 
@@ -133,18 +141,21 @@ def stream_agent_events(
     session_id: str,
     user_id: str,
     agent_manages_history: bool,
+    agent_gateway_url: str | None = None,
 ) -> AsyncIterator[RenderEvent]:
     """
     Invoke the agent and stream render events parsed from its reply.
 
     Args:
         agent_arn (str | None): The ARN of the AgentCore Runtime agent or
-            managed harness to invoke, or None for the local agent.
+            managed harness to invoke, or None for Gateway URL-only or local mode.
         agent_qualifier (str | None): The endpoint to invoke on that target
             (`Env.agent_qualifier`), or None for the DEFAULT endpoint.
         messages (list[Message]): The conversation, Converse-shaped.
         session_id (str): The runtimeSessionId (Slack thread/DM key).
         user_id (str): The runtimeUserId (verified Slack identity).
+        agent_gateway_url (str | None): Configured Gateway URL; without an
+            ARN, selects the signed HTTP path.
         agent_manages_history (bool): Whether the agent keeps the
             conversation history itself (`Env.agent_manages_history`). If
             so, only the messages it has not seen yet are sent — re-sending
@@ -156,7 +167,11 @@ def stream_agent_events(
     """
     if agent_manages_history:
         messages = keep_messages_after_last_assistant(messages)
-    if agent_arn is None:
+    if agent_arn is None and agent_gateway_url is not None:
+        events = _stream_gateway_events(
+            payload={"messages": messages}, session_id=session_id, user_id=user_id
+        )
+    elif agent_arn is None:
         events = _stream_local_events(
             payload={"messages": messages}, session_id=session_id
         )
@@ -186,6 +201,7 @@ def stream_agent_resume_events(
     interrupt_responses: dict,
     session_id: str,
     user_id: str,
+    agent_gateway_url: str | None = None,
 ) -> AsyncIterator[RenderEvent]:
     """
     Resume an interrupted run with the collected answers.
@@ -197,9 +213,11 @@ def stream_agent_resume_events(
 
     Args:
         agent_arn (str | None): The ARN of the AgentCore Runtime agent to
-            resume, or None for the local agent.
+            resume, or None for Gateway URL-only or local mode.
         agent_qualifier (str | None): The endpoint the interrupted run was
             invoked on, so the resume reaches the same agent version.
+        agent_gateway_url (str | None): Configured Gateway URL; without an
+            ARN, selects the same signed HTTP path as the original turn.
         interrupt_responses (dict): The collected answers, one value per
             interrupt id (`interrupt_logic.build_interrupt_responses`).
         session_id (str): The runtimeSessionId the interrupted run used.
@@ -209,7 +227,11 @@ def stream_agent_resume_events(
         AsyncIterator[RenderEvent]: The resumed reply's render events.
     """
     payload = {"interrupt_responses": interrupt_responses}
-    if agent_arn is None:
+    if agent_arn is None and agent_gateway_url is not None:
+        events = _stream_gateway_events(
+            payload=payload, session_id=session_id, user_id=user_id
+        )
+    elif agent_arn is None:
         events = _stream_local_events(payload=payload, session_id=session_id)
     else:
         events = _stream_runtime_events(
@@ -228,7 +250,7 @@ async def _translate_silence(
     # A read timeout means the stream went quiet, which is not always a
     # stalled connection: a model that thinks before it speaks sends nothing
     # while it does. Naming that case as its own exception is what lets a
-    # caller say so instead of reporting a broken reply. Wrapping all three
+    # caller say so instead of reporting a broken reply. Wrapping all invoke
     # paths here keeps the two timeout flavours — boto3's and the socket's —
     # in one place, and only the agent's stream runs inside this scope, so a
     # bare TimeoutError here (which asyncio raises too) can only be a read.
@@ -266,6 +288,21 @@ async def _stream_runtime_events(
         lines: Iterator[bytes] = stream.iter_lines()
         async for render_event in _render_events_from_sse_lines(lines):
             yield render_event
+    finally:
+        stream.close()
+
+
+async def _stream_gateway_events(
+    *, payload: dict, session_id: str, user_id: str
+) -> AsyncIterator[RenderEvent]:
+    if _gateway_client is None:
+        raise RuntimeError("agent_service.init_client() must be called at startup")
+    stream = await asyncio.to_thread(
+        _gateway_client.invoke, payload=payload, session_id=session_id, user_id=user_id
+    )
+    try:
+        async for event in _render_events_from_sse_lines(stream.iter_lines()):
+            yield event
     finally:
         stream.close()
 

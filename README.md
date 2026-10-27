@@ -45,7 +45,7 @@ SLACK_APP_TOKEN=xapp-1-...
 SLACK_BOT_TOKEN=xoxb-...
 ```
 
-With no `AGENT_ARN` set, Welt runs in local mode: it forwards conversations to the agent at `http://localhost:8080`.
+With neither `AGENT_ARN` nor `AGENT_GATEWAY_URL` set, Welt runs in local mode: it forwards conversations to the agent at `http://localhost:8080`.
 
 ### 3. Run Welt
 
@@ -74,7 +74,7 @@ The Quick Start keeps everything on your machine. For real use, the agent goes t
 - Your own, on AgentCore Runtime. Build it on one of the [adapters](#agent-side-adapters), with its example agent as the reference — deploying that example as it is makes a fine start — and deploy it; each example's README has a **Deploy** section. `AGENT_ARN` is the agent runtime ARN.
 - A [managed harness](docs/harness.md), with no agent code at all. Create one in the AgentCore console; `AGENT_ARN` is its ARN.
 
-Either way, restart Welt with `AGENT_ARN` set:
+To invoke either directly, restart Welt with `AGENT_ARN` set:
 
 ```sh
 AGENT_ARN=arn:aws:bedrock-agentcore:...
@@ -82,7 +82,7 @@ AGENT_ARN=arn:aws:bedrock-agentcore:...
 
 Welt now picks up your AWS credentials the standard SDK way, and that identity needs permission to invoke the target: `bedrock-agentcore:InvokeAgentRuntime` and `bedrock-agentcore:InvokeAgentRuntimeForUser` on a runtime agent (Welt sends the verified Slack user as the [`runtimeUserId`](docs/wire.md#session-and-identity)), or `bedrock-agentcore:InvokeHarness` on a harness.
 
-To invoke a Runtime through an IAM-authenticated AgentCore Gateway, follow [Routing a Runtime through AgentCore Gateway](docs/gateway.md). This connection option works with either Welt deployment below.
+To let an IAM-authenticated AgentCore Gateway select the Runtime, set `AGENT_GATEWAY_URL` instead of `AGENT_ARN`. Supplying both uses the Runtime SDK through the Gateway. [Routing a Runtime through AgentCore Gateway](docs/gateway.md) covers both modes, their permissions, and setup for either Welt deployment below.
 
 **Welt** then goes to one of two places, whichever the agent is:
 
@@ -115,8 +115,8 @@ Optional environment variables, all with working defaults:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_ARN` | (unset) | The AgentCore Runtime agent — or managed harness — to invoke, as its own ARN or as one of its endpoints' (`.../runtime-endpoint/<name>`, `.../harness-endpoint/<name>`); an endpoint ARN selects that endpoint, and an ARN naming none invokes the `DEFAULT` endpoint. Unset is local mode, for development: Welt invokes the agent at `http://localhost:8080` instead. |
-| `AGENT_GATEWAY_URL` | (unset) | IAM-authenticated Gateway target base URL in the Runtime's region, such as `https://<gateway-id>.gateway.bedrock-agentcore.<region>.amazonaws.com/agent`. Requires `AGENT_ARN`; used for both conversation turns and interrupt responses. |
+| `AGENT_ARN` | (unset) | The AgentCore Runtime agent — or managed harness — to invoke, as its own ARN or as one of its endpoints' (`.../runtime-endpoint/<name>`, `.../harness-endpoint/<name>`); an endpoint ARN selects that endpoint, and an ARN naming none invokes the `DEFAULT` endpoint. With both this and `AGENT_GATEWAY_URL` unset, Welt invokes the local agent at `http://localhost:8080` for development. |
+| `AGENT_GATEWAY_URL` | (unset) | IAM-authenticated Gateway target base URL, such as `https://<gateway-id>.gateway.bedrock-agentcore.<region>.amazonaws.com/agent`. Set it alone to POST to the Gateway without a Runtime ARN; also set `AGENT_ARN` to use the SDK endpoint-override mode. Both modes carry conversation turns and interrupt responses. See [Gateway routing](docs/gateway.md). |
 | `AGENT_MANAGES_HISTORY` | `false` | What Welt sends per turn: the full thread history (`false`), or only the new messages (`true`). |
 | `FILE_INPUT_MODALITIES` | (unset) | Comma-separated modalities to accept from Slack uploads; unset disables file input. See [Files](docs/files.md). |
 | `LOG_LEVEL` | `INFO` | Logging level for Welt's own loggers. |
