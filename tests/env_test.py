@@ -248,3 +248,36 @@ def test_an_arn_naming_no_endpoint_sends_no_qualifier():
     assert harness.agent_qualifier is None
     assert runtime.boot_warnings == ()
     assert harness.boot_warnings == ()
+
+
+_GATEWAY_URL = "https://my-gateway-abcdefghij.gateway.bedrock-agentcore.us-west-2.amazonaws.com/agent"
+
+
+def test_runtime_can_be_invoked_through_a_gateway():
+    result = load_env({**_REQUIRED, "AGENT_GATEWAY_URL": _GATEWAY_URL})
+
+    assert result.agent_gateway_url == _GATEWAY_URL
+    assert result.agent_arn == _RUNTIME_ARN
+    assert result.agent_region == "us-west-2"
+    assert result.boot_warnings == ()
+
+
+@pytest.mark.parametrize("extra", [{}, {"AGENT_GATEWAY_URL": ""}])
+def test_unset_or_empty_gateway_keeps_direct_runtime_invocation(extra):
+    assert load_env({**_REQUIRED, **extra}).agent_gateway_url is None
+
+
+def test_a_gateway_requires_a_runtime_arn():
+    with pytest.raises(ValueError, match="AGENT_GATEWAY_URL requires AGENT_ARN"):
+        load_env({"SLACK_BOT_TOKEN": "xoxb-test", "AGENT_GATEWAY_URL": _GATEWAY_URL})
+
+
+def test_a_harness_ignores_the_runtime_gateway_with_a_warning():
+    result = load_env(
+        {**_REQUIRED, "AGENT_ARN": _HARNESS_ARN, "AGENT_GATEWAY_URL": _GATEWAY_URL}
+    )
+
+    assert result.agent_gateway_url is None
+    assert result.boot_warnings == (
+        "Ignoring AGENT_GATEWAY_URL: Gateway routing is for Runtime agents",
+    )

@@ -72,7 +72,7 @@ LOCAL_AGENT_URL = f"http://{LOCAL_AGENT_HOST}:{LOCAL_AGENT_PORT}"
 LOCAL_AGENT_TIMEOUT = 60
 
 
-def init_client(*, region_name: str) -> None:
+def init_client(*, region_name: str, gateway_url: str | None = None) -> None:
     """
     Create the shared bedrock-agentcore client.
 
@@ -85,13 +85,18 @@ def init_client(*, region_name: str) -> None:
         region_name (str): The agent's region (`Env.agent_region`, taken
             from AGENT_ARN), so the client targets the agent regardless of
             any ambient AWS region configuration.
+        gateway_url (str | None): IAM-authenticated Gateway target base URL
+            in the same region, or None to invoke Runtime directly.
 
     Returns:
         None
     """
     global _client
     _client = boto3.client(
-        "bedrock-agentcore", region_name=region_name, config=_CLIENT_CONFIG
+        "bedrock-agentcore",
+        region_name=region_name,
+        endpoint_url=gateway_url,
+        config=_CLIENT_CONFIG,
     )
 
 

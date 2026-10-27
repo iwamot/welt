@@ -37,6 +37,9 @@ class Env:
     # the DEFAULT endpoint — so an ARN that names no endpoint gets DEFAULT.
     # Local mode has no endpoints, so this is None whenever `agent_arn` is.
     agent_qualifier: str | None
+    # Optional IAM-authenticated Gateway target base URL, in the Runtime's
+    # region. The same client carries turns and interrupt responses.
+    agent_gateway_url: str | None
     # The Slack bot token (xoxb) for Web API calls. Transport credentials
     # (the Socket Mode xapp token, the HTTP signing secret) belong to the
     # entry points, which read them with `require_env`.
@@ -122,6 +125,15 @@ def load_env(environ: Mapping[str, str]) -> Env:
         )
     # boot_warnings stays in ascending variable-name order.
     boot_warnings: list[str] = []
+    agent_gateway_url = environ.get("AGENT_GATEWAY_URL") or None
+    if agent_gateway_url is not None:
+        if agent_arn is None:
+            raise ValueError("AGENT_GATEWAY_URL requires AGENT_ARN")
+        if harness:
+            agent_gateway_url = None
+            boot_warnings.append(
+                "Ignoring AGENT_GATEWAY_URL: Gateway routing is for Runtime agents"
+            )
     agent_manages_history = _get_bool(environ, "AGENT_MANAGES_HISTORY", harness)
     if harness and not agent_manages_history:
         agent_manages_history = True
@@ -142,6 +154,7 @@ def load_env(environ: Mapping[str, str]) -> Env:
         agent_arn=agent_arn,
         agent_region=agent_region,
         agent_qualifier=arn_endpoint,
+        agent_gateway_url=agent_gateway_url,
         slack_bot_token=require_env(environ, "SLACK_BOT_TOKEN"),
         log_level=_get_log_level(environ, "LOG_LEVEL"),
         deps_log_level=_get_log_level(environ, "DEPS_LOG_LEVEL"),
