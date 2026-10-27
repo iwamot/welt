@@ -23,6 +23,27 @@ Parameters:
     Type: String
     Description: ARN of the AgentCore Runtime agent or managed harness to invoke.
 
+  AgentGatewayUrl:
+    Type: String
+    Default: ""
+    Description: Optional IAM-authenticated Gateway target base URL in the agent region.
+  GatewayArn:
+    Type: String
+    Default: ""
+    Description: ARN of that Gateway, for the function's invocation permission.
+
+Rules:
+  GatewaySettings:
+    Assertions:
+      - Assert:
+          Fn::Equals:
+            - Fn::Equals: [!Ref AgentGatewayUrl, ""]
+            - Fn::Equals: [!Ref GatewayArn, ""]
+        AssertDescription: Set AgentGatewayUrl and GatewayArn together.
+
+Conditions:
+  UseGateway: !Not [!Equals [!Ref AgentGatewayUrl, ""]]
+
 Resources:
   WeltFunction:
     Type: AWS::Serverless::Function
@@ -57,6 +78,7 @@ Resources:
           SLACK_BOT_TOKEN: !Ref SlackBotToken
           SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
           AGENT_ARN: !Ref AgentArn
+          AGENT_GATEWAY_URL: !Ref AgentGatewayUrl
       Policies:
         - Statement:
             # Bolt acks each event within Slack's 3-second window and
@@ -64,6 +86,12 @@ Resources:
             - Effect: Allow
               Action: lambda:InvokeFunction
               Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${FunctionName}
+            - !If
+              - UseGateway
+              - Effect: Allow
+                Action: bedrock-agentcore:InvokeGateway
+                Resource: !Ref GatewayArn
+              - !Ref AWS::NoValue
             - Effect: Allow
               Action:
                 - bedrock-agentcore:InvokeAgentRuntime

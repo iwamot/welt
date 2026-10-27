@@ -75,7 +75,7 @@ def _get_handler() -> SlackRequestHandler:
     if env.agent_region is None:
         log_local_mode()
     else:
-        init_client(region_name=env.agent_region)
+        init_client(region_name=env.agent_region, gateway_url=env.agent_gateway_url)
     return SlackRequestHandler(app=create_bolt_app(env, signing_secret))
 
 

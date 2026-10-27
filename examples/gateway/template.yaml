@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: IAM-authenticated AgentCore Gateway forwarding to an existing Runtime.
+
+Parameters:
+  GatewayName:
+    Type: String
+    Default: welt-gateway
+  RuntimeArn:
+    Type: String
+    Description: ARN of the existing Runtime in this region, without an endpoint suffix.
+  RuntimeQualifier:
+    Type: String
+    Default: DEFAULT
+    Description: Runtime endpoint selected by this Gateway target.
+
+Resources:
+  GatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:gateway/*
+      Policies:
+        - PolicyName: InvokeRuntime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:InvokeAgentRuntime
+                  - bedrock-agentcore:InvokeAgentRuntimeForUser
+                Resource:
+                  - !Ref RuntimeArn
+                  - !Sub ${RuntimeArn}/*
+  Gateway:
+    Type: AWS::BedrockAgentCore::Gateway
+    Properties:
+      Name: !Ref GatewayName
+      AuthorizerType: AWS_IAM
+      RoleArn: !GetAtt GatewayRole.Arn
+  RuntimeTarget:
+    Type: AWS::BedrockAgentCore::GatewayTarget
+    Properties:
+      GatewayIdentifier: !GetAtt Gateway.GatewayIdentifier
+      Name: agent
+      CredentialProviderConfigurations:
+        - CredentialProviderType: GATEWAY_IAM_ROLE
+      MetadataConfiguration:
+        AllowedRequestHeaders:
+          - X-Amzn-Bedrock-AgentCore-Runtime-Session-Id
+          - X-Amzn-Bedrock-AgentCore-Runtime-User-Id
+      TargetConfiguration:
+        Http:
+          AgentcoreRuntime:
+            Arn: !Ref RuntimeArn
+            Qualifier: !Ref RuntimeQualifier
+
+Outputs:
+  GatewayArn:
+    Value: !GetAtt Gateway.GatewayArn
+  AgentGatewayUrl:
+    Description: Base URL for Welt's AGENT_GATEWAY_URL.
+    Value: !Sub https://${Gateway.GatewayIdentifier}.gateway.bedrock-agentcore.${AWS::Region}.${AWS::URLSuffix}/agent

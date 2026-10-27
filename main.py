@@ -51,7 +51,7 @@ async def main() -> None:
     if env.agent_region is None:
         log_local_mode()
     else:
-        init_client(region_name=env.agent_region)
+        init_client(region_name=env.agent_region, gateway_url=env.agent_gateway_url)
 
     app = create_bolt_app(env)
     handler = AsyncSocketModeHandler(app, slack_app_token)
