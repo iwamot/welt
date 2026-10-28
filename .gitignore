@@ -6,6 +6,7 @@ __pycache__/
 
 # Tool caches
 .coverage
+coverage.xml
 .pytest_cache/
 .ruff_cache/
 
