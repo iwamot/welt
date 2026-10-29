@@ -34,7 +34,7 @@ dev = [
     # so the published contract cannot drift from what Welt sends.
     "jsonschema==4.26.0",
     "pip-licenses==5.5.5",
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     "pytest-asyncio==1.4.1",
     "pytest-cov==7.1.0",
 ]
