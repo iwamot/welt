@@ -72,7 +72,7 @@ The Quick Start keeps everything on your machine. For real use, the agent goes t
 **The agent** is one of two things:
 
 - Your own, on AgentCore Runtime. Build it on one of the [adapters](#agent-side-adapters), with its example agent as the reference — deploying that example as it is makes a fine start — and deploy it; each example's README has a **Deploy** section. `AGENT_ARN` is the agent runtime ARN.
-- A [managed harness](docs/harness.md), with no agent code at all. Create one in the AgentCore console; `AGENT_ARN` is its ARN.
+- A [managed harness](docs/harness.md), with no agent code at all. Follow the [AgentCore CLI setup](docs/harness.md#create-a-harness) to create one; `AGENT_ARN` is its ARN.
 
 To invoke either directly, restart Welt with `AGENT_ARN` set:
 
