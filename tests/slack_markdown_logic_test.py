@@ -799,6 +799,112 @@ def test_a_table_cell_is_written_so_the_table_can_be_read_back():
     assert blocks_to_markdown(blocks) == ("| a | b |\n| --- | --- |\n| one two |  |")
 
 
+def test_a_raw_cell_is_read_as_the_text_it_holds():
+    blocks = [
+        {
+            "type": "table",
+            "rows": [
+                [
+                    {"type": "raw_text", "text": "Item|name"},
+                    {"type": "raw_text", "text": "*Count*"},
+                ],
+                [
+                    {"type": "raw_text", "text": "apples"},
+                    {"type": "raw_number", "value": 1200, "text": "1,200"},
+                ],
+            ],
+        }
+    ]
+
+    assert blocks_to_markdown(blocks) == (
+        "| Item\\|name | *Count* |\n| --- | --- |\n| apples | 1,200 |"
+    )
+
+
+def test_a_container_reads_as_its_heading_above_its_blocks():
+    blocks = [
+        {
+            "type": "container",
+            "title": {"type": "plain_text", "text": "Build"},
+            "subtitle": {"type": "mrkdwn", "text": "*main*"},
+            "child_blocks": [
+                {"type": "section", "text": {"type": "mrkdwn", "text": "Passed"}},
+                {"type": "divider"},
+            ],
+        }
+    ]
+
+    assert blocks_to_markdown(blocks) == "Build\n**main**\n\nPassed\n\n---"
+
+
+def test_a_rich_text_title_wins_over_a_plain_one():
+    blocks = [
+        {
+            "type": "container",
+            "title": {"type": "plain_text", "text": "Plain"},
+            "rich_text_title": {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "text", "text": "Rich"}],
+                    }
+                ],
+            },
+            "child_blocks": [],
+        }
+    ]
+
+    assert blocks_to_markdown(blocks) == "Rich"
+
+
+def test_a_container_of_blocks_alone_reads_as_those_blocks():
+    blocks = [
+        {
+            "type": "container",
+            "child_blocks": [
+                {"type": "section", "text": {"type": "plain_text", "text": "Inside"}}
+            ],
+        }
+    ]
+
+    assert blocks_to_markdown(blocks) == "Inside"
+
+
+def test_a_carousel_reads_its_cards_from_the_top_of_each_down():
+    blocks = [
+        {
+            "type": "carousel",
+            "elements": [
+                {
+                    "type": "card",
+                    "hero_image": {
+                        "type": "image",
+                        "image_url": "https://example.com/a.png",
+                        "alt_text": "A",
+                    },
+                    "title": {"type": "mrkdwn", "text": "*First*"},
+                    "subtitle": {"type": "plain_text", "text": "Sub"},
+                    "body": {"type": "mrkdwn", "text": "Body"},
+                    "subtext": {"type": "plain_text", "text": "Small"},
+                    "actions": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Open"},
+                        }
+                    ],
+                },
+                {"type": "card", "title": {"type": "plain_text", "text": "Second"}},
+            ],
+        }
+    ]
+
+    assert blocks_to_markdown(blocks) == (
+        "![A](https://example.com/a.png)\n**First**\nSub\nBody\nSmall\n"
+        "[buttons: Open]\n\nSecond"
+    )
+
+
 def test_a_pipe_in_a_cell_is_escaped():
     cell = {
         "type": "rich_text",
