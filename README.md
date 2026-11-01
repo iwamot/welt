@@ -21,7 +21,7 @@ Adapters exist for several agent frameworks, in Python and TypeScript — see [A
 
 ## Quick Start
 
-The Quick Start runs everything on your machine — Welt in one terminal, the example agent in another. Nothing is deployed; the only AWS dependency is the Bedrock model the agent calls. Deployment comes after, once the conversation works — see [Deployment](#deployment).
+The Quick Start runs everything on your machine — Welt in one terminal, the example agent in another. Nothing is deployed. You need a Slack workspace where you can install apps, [uv](https://docs.astral.sh/uv/), and AWS credentials with access to a Bedrock model, which the agent calls. Deployment comes after, once the conversation works — see [Deployment](#deployment).
 
 ### 1. Create a Slack App
 
@@ -59,11 +59,13 @@ It connects to Slack and waits. In local mode Welt itself needs no AWS credentia
 
 ### 4. Run the Example Agent
 
-In another terminal, run [welt-io-strands's example agent](https://github.com/iwamot/welt-io-strands/tree/main/examples/agent) by following its README's **Run Locally** section; it serves on `http://localhost:8080`, where Welt is pointing. (The [other adapters'](#agent-side-adapters) example agents work just as well here.)
+In another terminal and another directory (the example downloads its own `main.py`, which would overwrite Welt's), run [welt-io-strands's example agent](https://github.com/iwamot/welt-io-strands/tree/main/examples/agent) by following its README's **Run Locally** section; it serves on `http://localhost:8080`, where Welt is pointing. (The [other adapters'](#agent-side-adapters) example agents work just as well here.)
 
 ### 5. Say Hello!
 
 Invite the bot to a channel (`/invite @Welt`) and mention it, or send it a DM. Welt streams the agent's reply into the thread; the example agent's README suggests things to try.
+
+To continue the conversation, reply in that thread. A post outside it starts a new conversation with no history, in a DM too. In a channel, replies need no mention when the thread's first post mentions the bot; otherwise, mention it in each post.
 
 ## Deployment
 
@@ -74,7 +76,7 @@ The Quick Start keeps everything on your machine. For real use, the agent goes t
 - Your own, on AgentCore Runtime. Build it on one of the [adapters](#agent-side-adapters), with its example agent as the reference — deploying that example as it is makes a fine start — and deploy it; each example's README has a **Deploy** section. `AGENT_ARN` is the agent runtime ARN.
 - A [managed harness](docs/harness.md), with no agent code at all. Follow the [AgentCore CLI setup](docs/harness.md#create-a-harness) to create one; `AGENT_ARN` is its ARN.
 
-To invoke either directly, restart Welt with `AGENT_ARN` set:
+To invoke either directly, add `AGENT_ARN` to your `.env` file and restart Welt:
 
 ```sh
 AGENT_ARN=arn:aws:bedrock-agentcore:...
@@ -82,12 +84,14 @@ AGENT_ARN=arn:aws:bedrock-agentcore:...
 
 Welt now picks up your AWS credentials the standard SDK way, and that identity needs permission to invoke the target: `bedrock-agentcore:InvokeAgentRuntime` and `bedrock-agentcore:InvokeAgentRuntimeForUser` on a runtime agent (Welt sends the verified Slack user as the [`runtimeUserId`](docs/wire.md#session-and-identity)), or `bedrock-agentcore:InvokeHarness` on a harness.
 
-To let an IAM-authenticated AgentCore Gateway select the Runtime, set `AGENT_GATEWAY_URL` instead of `AGENT_ARN`. Supplying both uses the Runtime SDK through the Gateway. [Routing a Runtime through AgentCore Gateway](docs/gateway.md) covers both modes, their permissions, and setup for either Welt deployment below.
+Routing a Runtime through an IAM-authenticated AgentCore Gateway is optional and uses `AGENT_GATEWAY_URL`; see [Routing a Runtime through AgentCore Gateway](docs/gateway.md).
 
 **Welt** then goes to one of two places, whichever the agent is:
 
 - [Running Welt as a Resident Process](docs/socket.md) — Socket Mode, so no public URL is involved. Runs as a container on ECS or any host you already have.
 - [Running Welt on AWS Lambda](docs/lambda.md) — no always-on process, no cost while idle. Slack reaches it at a Function URL.
+
+Welt has no user allowlist: anyone who can DM the bot, or post in a channel it is in, reaches the agent. The agent receives the verified Slack user as [`runtimeUserId`](docs/wire.md#session-and-identity), so per-user rules go there.
 
 ## Features
 
@@ -107,6 +111,8 @@ The wire between Welt and the agent is plain JSON, and the [Wire Contract](docs/
 | [welt-io-mastra](https://github.com/iwamot/welt-io-mastra) | TypeScript | Mastra | [@welt-io/mastra](https://www.npmjs.com/package/@welt-io/mastra) |
 | [welt-io-openai-agents-ts](https://github.com/iwamot/welt-io-openai-agents-ts) | TypeScript | OpenAI Agents SDK | [@welt-io/openai-agents](https://www.npmjs.com/package/@welt-io/openai-agents) |
 
+Frameworks differ in what they can carry — for example, files the model generates itself, or custom questions and free-text answers — so check the limits in an adapter's README before choosing it.
+
 Other stacks can implement the contract directly.
 
 ## Configuration
@@ -117,7 +123,7 @@ Optional environment variables, all with working defaults:
 |----------|---------|-------------|
 | `AGENT_ARN` | (unset) | The AgentCore Runtime agent — or managed harness — to invoke, as its own ARN or as one of its endpoints' (`.../runtime-endpoint/<name>`, `.../harness-endpoint/<name>`); an endpoint ARN selects that endpoint, and an ARN naming none invokes the `DEFAULT` endpoint. With both this and `AGENT_GATEWAY_URL` unset, Welt invokes the local agent at `http://localhost:8080` for development. |
 | `AGENT_GATEWAY_URL` | (unset) | IAM-authenticated Gateway target base URL, such as `https://<gateway-id>.gateway.bedrock-agentcore.<region>.amazonaws.com/agent`. Set it alone to POST to the Gateway without a Runtime ARN; also set `AGENT_ARN` to use the SDK endpoint-override mode. Both modes carry conversation turns and interrupt responses. See [Gateway routing](docs/gateway.md). |
-| `AGENT_MANAGES_HISTORY` | `false` | What Welt sends per turn: the full thread history (`false`), or only the new messages (`true`). |
+| `AGENT_MANAGES_HISTORY` | `false` | What Welt sends per turn: the full thread history (`false`), or only the new messages (`true`). Set `true` only when your agent keeps its own history, which would otherwise hold each earlier turn twice. |
 | `FILE_INPUT_MODALITIES` | (unset) | Comma-separated modalities to accept from Slack uploads; unset disables file input. See [Files](docs/files.md). |
 | `LOG_LEVEL` | `INFO` | Logging level for Welt's own loggers. |
 | `DEPS_LOG_LEVEL` | `INFO` | Logging level for dependency libraries (botocore, slack_bolt, ...). Separate from `LOG_LEVEL` because botocore logs credential material at `DEBUG`. |
