@@ -13,9 +13,10 @@ from Slack's Markdown renderer, `markdown`, `section` and `context` from
 what apps post — the last as the aside Slack draws it as — `image` and
 `video` for what they show, `divider` for the
 rule it draws, and `plan` (or the `task_card` Slack drew before it) for
-the tools a reply used and how each of them ended. The widgets are read
-as well — the buttons a message offers and the field it asks to be typed
-in — since a widget still drawn is one still waiting to be used; a widget
+the tools a reply used and how each of them ended. `container`, `card` and
+`carousel` hold other things to read, and are read for those. The widgets
+are read as well — the buttons a message offers and the field it asks to be
+typed in — since a widget still drawn is one still waiting to be used; a widget
 that has been used is gone from the message by then. They are named as
 what they are and not as words anyone said. A `file` reference carries
 nothing at all.
@@ -100,6 +101,12 @@ def _block_markdown(block: object) -> str:
             return _input_markdown(block)
         case "task_card":
             return _task_markdown(block)
+        case "container":
+            return _container_markdown(block)
+        case "card":
+            return _card_markdown(block)
+        case "carousel":
+            return blocks_to_markdown(block.get("elements"))
         case _:
             return ""
 
@@ -373,6 +380,53 @@ def _section_markdown(block: dict) -> str:
     return "\n".join(text for text in texts if text)
 
 
+def _container_markdown(block: dict) -> str:
+    """
+    Read a container block as its heading above the blocks it holds.
+
+    A `rich_text_title` wins over a plain `title` when both are given, as
+    it does where Slack draws them.
+
+    Args:
+        block (dict): A container block.
+
+    Returns:
+        str: The heading and the blocks, empty when neither carries text.
+    """
+    title = _block_markdown(block.get("rich_text_title")).strip("\n")
+    heading = [
+        title or _text_object_markdown(block.get("title")),
+        _text_object_markdown(block.get("subtitle")),
+    ]
+    parts = [
+        "\n".join(line for line in heading if line),
+        blocks_to_markdown(block.get("child_blocks")),
+    ]
+    return "\n\n".join(part for part in parts if part)
+
+
+def _card_markdown(block: dict) -> str:
+    """
+    Read a card block from the top of the card down.
+
+    Args:
+        block (dict): A card block.
+
+    Returns:
+        str: The card's picture, texts and buttons, empty when it has none.
+    """
+    hero_image = block.get("hero_image")
+    parts = [
+        _image_markdown(hero_image) if isinstance(hero_image, dict) else "",
+        _text_object_markdown(block.get("title")),
+        _text_object_markdown(block.get("subtitle")),
+        _text_object_markdown(block.get("body")),
+        _text_object_markdown(block.get("subtext")),
+        _actions_markdown(block.get("actions")),
+    ]
+    return "\n".join(part for part in parts if part)
+
+
 def _image_markdown(block: dict) -> str:
     """
     Read an image block as the picture it shows.
@@ -636,14 +690,16 @@ def _cell_markdown(cell: object) -> str:
     so a cell holding either is written as one that can be read back.
 
     Args:
-        cell (object): One cell, itself a rich text block.
+        cell (object): One cell: a rich text block, or a `raw_text` or
+            `raw_number` object holding its text as it stands.
 
     Returns:
         str: The cell's text.
     """
     if not isinstance(cell, dict):
         return ""
-    text = _rich_text_markdown(cell.get("elements"))
+    raw = cell.get("text")
+    text = raw if isinstance(raw, str) else _rich_text_markdown(cell.get("elements"))
     return " ".join(text.split("\n")).replace("|", "\\|").strip()
 
 
