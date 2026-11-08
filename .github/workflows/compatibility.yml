@@ -14,6 +14,6 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.job }}-${{ github.event.pull_request.number || github.sha }}
       cancel-in-progress: true
-    uses: iwamot/workflows/.github/workflows/compatibility-python.yml@18f741c4161171e7c415075f9feb31f3a0f992d4 # v8.20.1
+    uses: iwamot/workflows/.github/workflows/compatibility-python.yml@6c93f31e16a47245f6103186d393e382f1d28666 # v8.20.2
     with:
       python-versions: '["3.12","3.13","3.14","3.15"]'
