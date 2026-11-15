@@ -56,3 +56,11 @@ def test_ci_runs_the_function_python_version():
     versions = re.search(r"python-versions: '(.+)'", COMPATIBILITY)
     assert versions
     assert function_python_version() in json.loads(versions.group(1))
+
+
+def test_release_zip_name_matches_the_function_platform():
+    archive = re.search(r"^LAMBDA_ZIP := (\S+)$", MAKEFILE, re.MULTILINE)
+    assert archive
+    assert archive.group(1) == (
+        f"welt-lambda-python{function_python_version()}-{function_architecture()}.zip"
+    )

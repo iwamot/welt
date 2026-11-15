@@ -13,22 +13,252 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+
 jobs:
-  release:
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.job }}-${{ github.ref }}
-      cancel-in-progress: false
-    uses: iwamot/workflows/.github/workflows/release-ghcr.yml@6c93f31e16a47245f6103186d393e382f1d28666 # v8.20.2
-    with:
-      tag: ${{ inputs.tag || '' }}
+  draft:
+    name: release-draft
+    outputs:
+      tag: ${{ steps.release-tag.outputs.tag }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 12
     permissions:
-      checks: read  # allow the shared release workflow to inspect required CI
-      statuses: read  # allow inspection of required legacy commit statuses
-      contents: write  # to draft and publish the GitHub Release
+      contents: write  # to create the draft GitHub Release
+      checks: read  # to wait for required CI before tagging
+      statuses: read  # to inspect required legacy commit statuses
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            api.osv.dev:443
+            auth.docker.io:443
+            dhi.io:443
+            files.pythonhosted.org:443
+            fulcio.sigstore.dev:443
+            ghcr.io:443
+            github.com:443
+            pkg-containers.githubusercontent.com:443
+            production.cloudfront.docker.com:443
+            raw.githubusercontent.com:443
+            registry-1.docker.io:443
+            rekor.sigstore.dev:443
+            release-assets.githubusercontent.com:443
+            timestamp.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
+
+      - uses: iwamot/actions/release-tag@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+        id: release-tag
+        with:
+          tag: ${{ inputs.tag || '' }}
+
+      - uses: iwamot/actions/release-draft@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+        with:
+          tag: ${{ steps.release-tag.outputs.tag }}
+
+  lambda-zip:
+    name: lambda-zip
+    needs: draft
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: write  # to attach assets to the draft GitHub Release
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            api.osv.dev:443
+            files.pythonhosted.org:443
+            fulcio.sigstore.dev:443
+            github.com:443
+            mise-versions.jdx.dev:443
+            mise.jdx.dev:443
+            pypi.org:443
+            raw.githubusercontent.com:443
+            rekor.sigstore.dev:443
+            release-assets.githubusercontent.com:443
+            timestamp.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
+            uploads.github.com:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ needs.draft.outputs.tag }}
+          persist-credentials: false
+
+      - name: Get mise version from mise.toml
+        id: mise-version
+        run: |
+          v=$(python3 -c "import tomllib; print(tomllib.load(open('mise.toml','rb'))['min_version'])")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        with:
+          version: ${{ steps.mise-version.outputs.version }}
+          install: false
+          cache: false
+
+      - name: Build Lambda release assets
+        run: mise exec aqua:astral-sh/uv -- make lambda-zip
+
+      - uses: iwamot/actions/release-upload@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+        with:
+          tag: ${{ needs.draft.outputs.tag }}
+          files: |
+            dist/welt-lambda-*.zip
+            dist/template.yaml
+
+  image:
+    name: publish-ghcr
+    needs: draft
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      contents: read
       packages: write  # to push images to GHCR
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-26.04
+          - platform: linux/arm64
+            runner: ubuntu-26.04-arm
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            api.osv.dev:443
+            auth.docker.io:443
+            dhi.io:443
+            files.pythonhosted.org:443
+            fulcio.sigstore.dev:443
+            ghcr.io:443
+            github.com:443
+            pkg-containers.githubusercontent.com:443
+            production.cloudfront.docker.com:443
+            raw.githubusercontent.com:443
+            registry-1.docker.io:443
+            rekor.sigstore.dev:443
+            release-assets.githubusercontent.com:443
+            timestamp.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hardened Images
+        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: dhi.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: iwamot/actions/docker-build-digest@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+        with:
+          tag: ${{ needs.draft.outputs.tag }}
+          registry_image: ${{ env.REGISTRY_IMAGE }}
+          platform: ${{ matrix.platform }}
+
+  image-merge:
+    name: merge-and-sign
+    needs: [draft, image]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
       id-token: write  # to mint OIDC tokens for cosign and attest
+      packages: write  # to push the merged manifest to GHCR
       attestations: write  # to write the provenance attestation
       artifact-metadata: write  # to record artifact metadata for the attestation
-    secrets:
-      dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-      dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            api.osv.dev:443
+            auth.docker.io:443
+            dhi.io:443
+            files.pythonhosted.org:443
+            fulcio.sigstore.dev:443
+            ghcr.io:443
+            github.com:443
+            pkg-containers.githubusercontent.com:443
+            production.cloudfront.docker.com:443
+            raw.githubusercontent.com:443
+            registry-1.docker.io:443
+            rekor.sigstore.dev:443
+            release-assets.githubusercontent.com:443
+            timestamp.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: iwamot/actions/docker-merge-and-sign@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+        with:
+          tag: ${{ needs.draft.outputs.tag }}
+          registry_image: ${{ env.REGISTRY_IMAGE }}
+
+  publish:
+    name: release-publish
+    needs: [draft, lambda-zip, image-merge]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 1
+    permissions:
+      contents: write  # to flip the draft GitHub Release to published
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            api.osv.dev:443
+            auth.docker.io:443
+            dhi.io:443
+            files.pythonhosted.org:443
+            fulcio.sigstore.dev:443
+            ghcr.io:443
+            github.com:443
+            pkg-containers.githubusercontent.com:443
+            production.cloudfront.docker.com:443
+            raw.githubusercontent.com:443
+            registry-1.docker.io:443
+            rekor.sigstore.dev:443
+            release-assets.githubusercontent.com:443
+            timestamp.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
+
+      - uses: iwamot/actions/release-publish@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+        with:
+          tag: ${{ needs.draft.outputs.tag }}

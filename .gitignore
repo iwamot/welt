@@ -15,4 +15,5 @@ coverage.xml
 
 # Lambda deployment artifacts (docs/lambda.md)
 /.aws-sam/
+/dist/
 /samconfig.toml
