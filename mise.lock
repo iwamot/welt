@@ -215,6 +215,65 @@ url = "https://github.com/astral-sh/uv/releases/download/0.13.8/uv-x86_64-pc-win
 url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/740313927"
 provenance = "github-attestations"
 
+[[tools."aqua:aws/aws-sam-cli"]]
+version = "1.172.1"
+backend = "aqua:aws/aws-sam-cli"
+specifiers = ["1.172.1"]
+
+[tools."aqua:aws/aws-sam-cli"."platforms.linux-arm64"]
+checksum = "sha256:fcfc7cd414a75cc17a00c81110b2955ab52b6fae1dd8b7415d637ca95ca931df"
+checksum_source = "mise-versions"
+url = "https://github.com/aws/aws-sam-cli/releases/download/v1.172.1/aws-sam-cli-linux-arm64.zip"
+url_api = "https://api.github.com/repos/aws/aws-sam-cli/releases/assets/733884474"
+
+[tools."aqua:aws/aws-sam-cli"."platforms.linux-arm64-musl"]
+checksum = "sha256:fcfc7cd414a75cc17a00c81110b2955ab52b6fae1dd8b7415d637ca95ca931df"
+checksum_source = "mise-versions"
+url = "https://github.com/aws/aws-sam-cli/releases/download/v1.172.1/aws-sam-cli-linux-arm64.zip"
+url_api = "https://api.github.com/repos/aws/aws-sam-cli/releases/assets/733884474"
+
+[tools."aqua:aws/aws-sam-cli"."platforms.linux-x64"]
+checksum = "sha256:aa6a5a785c576f5d8e1b783fe1633cb6eea1cbab382fa5aca1b9e17a9250cc07"
+checksum_source = "mise-versions"
+url = "https://github.com/aws/aws-sam-cli/releases/download/v1.172.1/aws-sam-cli-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/aws/aws-sam-cli/releases/assets/733885192"
+
+[tools."aqua:aws/aws-sam-cli"."platforms.linux-x64-baseline"]
+checksum = "sha256:aa6a5a785c576f5d8e1b783fe1633cb6eea1cbab382fa5aca1b9e17a9250cc07"
+checksum_source = "mise-versions"
+url = "https://github.com/aws/aws-sam-cli/releases/download/v1.172.1/aws-sam-cli-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/aws/aws-sam-cli/releases/assets/733885192"
+
+[tools."aqua:aws/aws-sam-cli"."platforms.linux-x64-musl"]
+checksum = "sha256:aa6a5a785c576f5d8e1b783fe1633cb6eea1cbab382fa5aca1b9e17a9250cc07"
+checksum_source = "mise-versions"
+url = "https://github.com/aws/aws-sam-cli/releases/download/v1.172.1/aws-sam-cli-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/aws/aws-sam-cli/releases/assets/733885192"
+
+[tools."aqua:aws/aws-sam-cli"."platforms.linux-x64-musl-baseline"]
+checksum = "sha256:aa6a5a785c576f5d8e1b783fe1633cb6eea1cbab382fa5aca1b9e17a9250cc07"
+checksum_source = "mise-versions"
+url = "https://github.com/aws/aws-sam-cli/releases/download/v1.172.1/aws-sam-cli-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/aws/aws-sam-cli/releases/assets/733885192"
+
+[tools."aqua:aws/aws-sam-cli"."platforms.macos-arm64"]
+checksum = "sha256:3123ce41dec75b922c631cafab99b2e6234844228104efb8a01fba5ebf4a2abe"
+checksum_source = "mise-versions"
+url = "https://github.com/aws/aws-sam-cli/releases/download/v1.172.1/aws-sam-cli-macos-arm64.pkg"
+url_api = "https://api.github.com/repos/aws/aws-sam-cli/releases/assets/733884834"
+
+[tools."aqua:aws/aws-sam-cli"."platforms.macos-x64"]
+checksum = "sha256:6af39e2634dba8ff0a2094b9e4f950f91fdf51ded9a3c97c976a059d0c73bc34"
+checksum_source = "mise-versions"
+url = "https://github.com/aws/aws-sam-cli/releases/download/v1.172.1/aws-sam-cli-macos-x86_64.pkg"
+url_api = "https://api.github.com/repos/aws/aws-sam-cli/releases/assets/733884715"
+
+[tools."aqua:aws/aws-sam-cli"."platforms.macos-x64-baseline"]
+checksum = "sha256:6af39e2634dba8ff0a2094b9e4f950f91fdf51ded9a3c97c976a059d0c73bc34"
+checksum_source = "mise-versions"
+url = "https://github.com/aws/aws-sam-cli/releases/download/v1.172.1/aws-sam-cli-macos-x86_64.pkg"
+url_api = "https://api.github.com/repos/aws/aws-sam-cli/releases/assets/733884715"
+
 [[tools."aqua:hadolint/hadolint"]]
 version = "2.15.1"
 backend = "aqua:hadolint/hadolint"

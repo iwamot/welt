@@ -44,9 +44,13 @@ Rules:
   GatewaySettings:
     Assertions:
       - Assert:
-          Fn::Equals:
-            - Fn::Equals: [!Ref AgentGatewayUrl, ""]
-            - Fn::Equals: [!Ref GatewayArn, ""]
+          Fn::Or:
+            - Fn::And:
+                - Fn::Equals: [!Ref AgentGatewayUrl, ""]
+                - Fn::Equals: [!Ref GatewayArn, ""]
+            - Fn::And:
+                - Fn::Not: [Fn::Equals: [!Ref AgentGatewayUrl, ""]]
+                - Fn::Not: [Fn::Equals: [!Ref GatewayArn, ""]]
         AssertDescription: Set AgentGatewayUrl and GatewayArn together.
 
 Conditions:

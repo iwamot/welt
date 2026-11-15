@@ -25,5 +25,8 @@ mise run gha-lint
 mise run shell-lint
 mise run docker-lint
 
+# AWS SAM
+SAM_CLI_TELEMETRY=0 sam validate --lint --template-file template.yaml
+
 # Check for uncommitted changes
 git diff --exit-code
