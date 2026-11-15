@@ -8,6 +8,7 @@ message, and the rest of the app never touches `os.environ`.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -170,6 +171,41 @@ def load_env(environ: Mapping[str, str]) -> Env:
         agent_manages_history=agent_manages_history,
         boot_warnings=tuple(boot_warnings),
     )
+
+
+# The Slack credentials Welt reads from the Secrets Manager secret that
+# SLACK_SECRET_ARN names, keyed like the environment variables they replace.
+SLACK_SECRET_KEYS = ("SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLACK_APP_TOKEN")
+
+
+def apply_slack_secret(
+    environ: Mapping[str, str], secret_string: str
+) -> tuple[dict[str, str], tuple[str, ...]]:
+    """
+    Layer the Slack credentials in a secret over the process environment.
+
+    The secret is a JSON object keyed like the environment variables. A key it
+    carries replaces the environment's value; a non-empty value it replaces
+    becomes a boot warning, the way other conflicting settings do. Keys it
+    leaves out keep their environment values.
+
+    Args:
+        environ (Mapping[str, str]): The process environment (`os.environ`).
+        secret_string (str): The secret's `SecretString`.
+
+    Returns:
+        tuple[dict[str, str], tuple[str, ...]]: The environment with the
+            secret's credentials applied, and the boot warnings.
+    """
+    secret = json.loads(secret_string)
+    merged = dict(environ)
+    warnings: list[str] = []
+    for name in SLACK_SECRET_KEYS:
+        if name in secret:
+            if environ.get(name):
+                warnings.append(f"Ignoring {name}: SLACK_SECRET_ARN supplies it")
+            merged[name] = secret[name]
+    return merged, tuple(warnings)
 
 
 def require_env(environ: Mapping[str, str], name: str) -> str:
