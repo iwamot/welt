@@ -93,6 +93,16 @@ Routing a Runtime through an IAM-authenticated AgentCore Gateway is optional and
 
 Welt has no user allowlist: anyone who can DM the bot, or post in a channel it is in, reaches the agent. The agent receives the verified Slack user as [`runtimeUserId`](docs/wire.md#session-and-identity), so per-user rules go there.
 
+### Lambda release ZIP
+
+For releases that include a Lambda ZIP, download `welt-lambda-*.zip` and `template.yaml` from **Assets** in [GitHub Releases](https://github.com/iwamot/welt/releases). The ZIP filename includes the Python runtime version and Linux architecture. To download both assets for a specific Welt version, replace `vX.Y.Z` with that release's tag:
+
+```sh
+gh release download vX.Y.Z --repo iwamot/welt --pattern 'welt-lambda-*.zip' --pattern template.yaml
+```
+
+See the [Lambda guide](docs/lambda.md) for deployment steps.
+
 ## Features
 
 - [Files](docs/files.md) — file input from Slack uploads, and uploading the files your agent generates back into the thread.
