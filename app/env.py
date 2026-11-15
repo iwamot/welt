@@ -8,7 +8,6 @@ message, and the rest of the app never touches `os.environ`.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -179,7 +178,7 @@ SLACK_SECRET_KEYS = ("SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLACK_APP_TOKEN
 
 
 def apply_slack_secret(
-    environ: Mapping[str, str], secret_string: str
+    environ: Mapping[str, str], secret: Mapping[str, str]
 ) -> tuple[dict[str, str], tuple[str, ...]]:
     """
     Layer the Slack credentials in a secret over the process environment.
@@ -191,13 +190,12 @@ def apply_slack_secret(
 
     Args:
         environ (Mapping[str, str]): The process environment (`os.environ`).
-        secret_string (str): The secret's `SecretString`.
+        secret (Mapping[str, str]): The secret's JSON object.
 
     Returns:
         tuple[dict[str, str], tuple[str, ...]]: The environment with the
             secret's credentials applied, and the boot warnings.
     """
-    secret = json.loads(secret_string)
     merged = dict(environ)
     warnings: list[str] = []
     for name in SLACK_SECRET_KEYS:

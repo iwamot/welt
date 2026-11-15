@@ -20,6 +20,9 @@ dependencies = [
     "aiohttp==3.14.5",
     # invoke_agent_runtime (AgentCore Runtime) is called through boto3.
     "boto3==1.44.3",
+    # On Lambda, the Slack secret is read through the Powertools parameters
+    # utility, which caches it with an expiry.
+    "aws-lambda-powertools==3.40.0",
 ]
 
 # The dev group is included by `uv sync` and `uv run` by default (and

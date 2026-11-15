@@ -28,8 +28,14 @@ from app import bolt_listeners
 from app.agent_service import init_client, log_local_mode
 from app.bolt_logic import INTERRUPT_ACTION_PATTERN
 from app.bolt_middlewares import before_authorize_http
-from app.env import Env, apply_slack_secret, load_env, require_env
-from app.secret_service import fetch_secret_string
+from app.env import (
+    SLACK_SECRET_KEYS,
+    Env,
+    apply_slack_secret,
+    load_env,
+    require_env,
+)
+from app.secret_service import fetch_slack_secret
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +52,38 @@ def lambda_handler(event: dict, context: object) -> dict:
     Returns:
         dict: The HTTP response for the Lambda runtime.
     """
-    return _get_handler().handle(event, context)
+    environ, secret_warnings = _slack_environ(os.environ)
+    credentials = tuple(
+        (name, environ[name]) for name in SLACK_SECRET_KEYS if name in environ
+    )
+    return _get_handler(credentials, secret_warnings).handle(event, context)
 
 
-@functools.cache
-def _get_handler() -> SlackRequestHandler:
+@functools.lru_cache(maxsize=1)
+def _get_handler(
+    credentials: tuple[tuple[str, str], ...], secret_warnings: tuple[str, ...]
+) -> SlackRequestHandler:
     """
-    Build the request handler once per Lambda execution environment.
+    Build the request handler for one set of Slack credentials.
 
     Deferring the build to the first invocation (instead of import time)
     keeps the module importable without configuration; a misconfigured
-    function still fails on its cold start with a clear error.
+    function still fails with a clear error. The handler is reused until the
+    credentials change, which happens when SLACK_SECRET_ARN's secret is
+    edited and its cached copy expires. Only the credentials key the cache,
+    because Lambda changes other environment variables, such as
+    `_X_AMZN_TRACE_ID`, on every invocation.
+
+    Args:
+        credentials (tuple[tuple[str, str], ...]): The Slack credentials in
+            effect, as (name, value) pairs.
+        secret_warnings (tuple[str, ...]): Boot warnings from applying the
+            secret.
 
     Returns:
         SlackRequestHandler: The handler wrapping the configured Bolt app.
     """
-    environ, secret_warnings = _slack_environ(os.environ)
+    environ = {**os.environ, **dict(credentials)}
     env = load_env(environ)
     signing_secret = require_env(environ, "SLACK_SIGNING_SECRET")
     SlackRequestHandler.clear_all_log_handlers()
@@ -101,7 +123,7 @@ def _slack_environ(
     secret_arn = environ.get("SLACK_SECRET_ARN")
     if not secret_arn:
         return dict(environ), ()
-    return apply_slack_secret(environ, fetch_secret_string(secret_arn))
+    return apply_slack_secret(environ, fetch_slack_secret(secret_arn))
 
 
 def create_bolt_app(env: Env, signing_secret: str) -> App:

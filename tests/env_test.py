@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from app.env import apply_slack_secret, load_env, require_env
@@ -334,9 +332,7 @@ def test_a_harness_ignores_the_runtime_gateway_with_a_warning():
 
 
 def test_slack_secret_supplies_credentials_the_environment_lacks():
-    secret = json.dumps(
-        {"SLACK_BOT_TOKEN": "xoxb-secret", "SLACK_SIGNING_SECRET": "sign-secret"}
-    )
+    secret = {"SLACK_BOT_TOKEN": "xoxb-secret", "SLACK_SIGNING_SECRET": "sign-secret"}
 
     environ, warnings = apply_slack_secret({"AGENT_ARN": _RUNTIME_ARN}, secret)
 
@@ -349,7 +345,7 @@ def test_slack_secret_supplies_credentials_the_environment_lacks():
 
 
 def test_slack_secret_wins_over_an_environment_value_with_a_warning():
-    secret = json.dumps({"SLACK_BOT_TOKEN": "xoxb-secret"})
+    secret = {"SLACK_BOT_TOKEN": "xoxb-secret"}
 
     environ, warnings = apply_slack_secret({"SLACK_BOT_TOKEN": "xoxb-env"}, secret)
 
@@ -358,7 +354,7 @@ def test_slack_secret_wins_over_an_environment_value_with_a_warning():
 
 
 def test_slack_secret_replaces_an_empty_environment_value_quietly():
-    secret = json.dumps({"SLACK_APP_TOKEN": "xapp-secret"})
+    secret = {"SLACK_APP_TOKEN": "xapp-secret"}
 
     environ, warnings = apply_slack_secret({"SLACK_APP_TOKEN": ""}, secret)
 
@@ -367,7 +363,7 @@ def test_slack_secret_replaces_an_empty_environment_value_quietly():
 
 
 def test_slack_secret_keeps_environment_values_for_keys_it_lacks():
-    secret = json.dumps({"SLACK_BOT_TOKEN": "xoxb-secret"})
+    secret = {"SLACK_BOT_TOKEN": "xoxb-secret"}
 
     environ, warnings = apply_slack_secret({"SLACK_SIGNING_SECRET": "sign-env"}, secret)
 
@@ -379,7 +375,7 @@ def test_slack_secret_keeps_environment_values_for_keys_it_lacks():
 
 
 def test_slack_secret_applies_only_slack_credentials():
-    secret = json.dumps({"SLACK_BOT_TOKEN": "xoxb-secret", "AGENT_ARN": _HARNESS_ARN})
+    secret = {"SLACK_BOT_TOKEN": "xoxb-secret", "AGENT_ARN": _HARNESS_ARN}
 
     environ, warnings = apply_slack_secret({"AGENT_ARN": _RUNTIME_ARN}, secret)
 
