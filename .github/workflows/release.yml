@@ -54,12 +54,12 @@ jobs:
             timestamp.sigstore.dev:443
             tuf-repo-cdn.sigstore.dev:443
 
-      - uses: iwamot/actions/release-tag@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+      - uses: iwamot/actions/release-tag@3236ea780ac15c4e38173c05b18b0d0ac3679ee2 # v2.16.0
         id: release-tag
         with:
           tag: ${{ inputs.tag || '' }}
 
-      - uses: iwamot/actions/release-draft@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+      - uses: iwamot/actions/release-draft@3236ea780ac15c4e38173c05b18b0d0ac3679ee2 # v2.16.0
         with:
           tag: ${{ steps.release-tag.outputs.tag }}
 
@@ -111,7 +111,7 @@ jobs:
       - name: Build Lambda release assets
         run: mise exec aqua:astral-sh/uv -- make lambda-zip
 
-      - uses: iwamot/actions/release-upload@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+      - uses: iwamot/actions/release-upload@3236ea780ac15c4e38173c05b18b0d0ac3679ee2 # v2.16.0
         with:
           tag: ${{ needs.draft.outputs.tag }}
           files: |
@@ -178,7 +178,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - uses: iwamot/actions/docker-build-digest@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+      - uses: iwamot/actions/docker-build-digest@3236ea780ac15c4e38173c05b18b0d0ac3679ee2 # v2.16.0
         with:
           tag: ${{ needs.draft.outputs.tag }}
           registry_image: ${{ env.REGISTRY_IMAGE }}
@@ -224,7 +224,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: iwamot/actions/docker-merge-and-sign@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+      - uses: iwamot/actions/docker-merge-and-sign@3236ea780ac15c4e38173c05b18b0d0ac3679ee2 # v2.16.0
         with:
           tag: ${{ needs.draft.outputs.tag }}
           registry_image: ${{ env.REGISTRY_IMAGE }}
@@ -259,6 +259,6 @@ jobs:
             timestamp.sigstore.dev:443
             tuf-repo-cdn.sigstore.dev:443
 
-      - uses: iwamot/actions/release-publish@46b78398bf2468a79ef18c5644b7f0ad20b77387 # v2.15.0
+      - uses: iwamot/actions/release-publish@3236ea780ac15c4e38173c05b18b0d0ac3679ee2 # v2.16.0
         with:
           tag: ${{ needs.draft.outputs.tag }}
