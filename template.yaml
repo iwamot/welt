@@ -11,14 +11,22 @@ Parameters:
     # A fixed name lets the self-invoke policy below reference the function
     # without a circular dependency on the function resource itself.
     Description: Name of the Lambda function.
+  SlackSecretArn:
+    Type: String
+    Default: ""
+    Description: >-
+      ARN of a Secrets Manager secret holding SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET
+      as JSON keys; leave empty to pass the tokens below instead.
   SlackBotToken:
     Type: String
+    Default: ""
     NoEcho: true
-    Description: Slack bot token (xoxb-...).
+    Description: Slack bot token (xoxb-...), when SlackSecretArn is empty.
   SlackSigningSecret:
     Type: String
+    Default: ""
     NoEcho: true
-    Description: Slack signing secret (Basic Information > Signing Secret).
+    Description: Slack signing secret (Basic Information > Signing Secret), when SlackSecretArn is empty.
   AgentArn:
     Type: String
     Default: ""
@@ -34,6 +42,15 @@ Parameters:
     Description: ARN of that Gateway, for the function's invocation permission.
 
 Rules:
+  SlackCredentials:
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::Not: [Fn::Equals: [!Ref SlackSecretArn, ""]]
+            - Fn::And:
+                - Fn::Not: [Fn::Equals: [!Ref SlackBotToken, ""]]
+                - Fn::Not: [Fn::Equals: [!Ref SlackSigningSecret, ""]]
+        AssertDescription: Set SlackSecretArn, or SlackBotToken and SlackSigningSecret.
   AgentTarget:
     Assertions:
       - Assert:
@@ -54,6 +71,7 @@ Rules:
         AssertDescription: Set AgentGatewayUrl and GatewayArn together.
 
 Conditions:
+  UseSlackSecret: !Not [!Equals [!Ref SlackSecretArn, ""]]
   UseGateway: !Not [!Equals [!Ref AgentGatewayUrl, ""]]
   UseAgentArn: !Not [!Equals [!Ref AgentArn, ""]]
 
@@ -88,6 +106,7 @@ Resources:
         AuthType: NONE
       Environment:
         Variables:
+          SLACK_SECRET_ARN: !Ref SlackSecretArn
           SLACK_BOT_TOKEN: !Ref SlackBotToken
           SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
           AGENT_ARN: !Ref AgentArn
@@ -99,6 +118,12 @@ Resources:
             - Effect: Allow
               Action: lambda:InvokeFunction
               Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${FunctionName}
+            - !If
+              - UseSlackSecret
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref SlackSecretArn
+              - !Ref AWS::NoValue
             - !If
               - UseGateway
               - Effect: Allow

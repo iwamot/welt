@@ -137,6 +137,7 @@ Optional environment variables, all with working defaults:
 | `FILE_INPUT_MODALITIES` | (unset) | Comma-separated modalities to accept from Slack uploads; unset disables file input. See [Files](docs/files.md). |
 | `LOG_LEVEL` | `INFO` | Logging level for Welt's own loggers. |
 | `DEPS_LOG_LEVEL` | `INFO` | Logging level for dependency libraries (botocore, slack_bolt, ...). Separate from `LOG_LEVEL` because botocore logs credential material at `DEBUG`. |
+| `SLACK_SECRET_ARN` | (unset) | On Lambda, the ARN of a Secrets Manager secret holding `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` as JSON keys. Welt reads it on a cold start instead of those environment variables; a credential set in both places comes from the secret, with a warning. See [Lambda](docs/lambda.md). |
 | `SLACK_STREAM_BUFFER_SIZE` | `256` | Markdown characters buffered before each streaming update; larger values mean fewer Slack API calls. |
 
 ## Contributing

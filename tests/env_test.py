@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from app.env import load_env, require_env
+from app.env import apply_slack_secret, load_env, require_env
 
 _RUNTIME_ARN = (
     "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/my_agent-abcdefghij"
@@ -329,3 +331,57 @@ def test_a_harness_ignores_the_runtime_gateway_with_a_warning():
     assert result.boot_warnings == (
         "Ignoring AGENT_GATEWAY_URL: Gateway routing is for Runtime agents",
     )
+
+
+def test_slack_secret_supplies_credentials_the_environment_lacks():
+    secret = json.dumps(
+        {"SLACK_BOT_TOKEN": "xoxb-secret", "SLACK_SIGNING_SECRET": "sign-secret"}
+    )
+
+    environ, warnings = apply_slack_secret({"AGENT_ARN": _RUNTIME_ARN}, secret)
+
+    assert environ == {
+        "AGENT_ARN": _RUNTIME_ARN,
+        "SLACK_BOT_TOKEN": "xoxb-secret",
+        "SLACK_SIGNING_SECRET": "sign-secret",
+    }
+    assert warnings == ()
+
+
+def test_slack_secret_wins_over_an_environment_value_with_a_warning():
+    secret = json.dumps({"SLACK_BOT_TOKEN": "xoxb-secret"})
+
+    environ, warnings = apply_slack_secret({"SLACK_BOT_TOKEN": "xoxb-env"}, secret)
+
+    assert environ == {"SLACK_BOT_TOKEN": "xoxb-secret"}
+    assert warnings == ("Ignoring SLACK_BOT_TOKEN: SLACK_SECRET_ARN supplies it",)
+
+
+def test_slack_secret_replaces_an_empty_environment_value_quietly():
+    secret = json.dumps({"SLACK_APP_TOKEN": "xapp-secret"})
+
+    environ, warnings = apply_slack_secret({"SLACK_APP_TOKEN": ""}, secret)
+
+    assert environ == {"SLACK_APP_TOKEN": "xapp-secret"}
+    assert warnings == ()
+
+
+def test_slack_secret_keeps_environment_values_for_keys_it_lacks():
+    secret = json.dumps({"SLACK_BOT_TOKEN": "xoxb-secret"})
+
+    environ, warnings = apply_slack_secret({"SLACK_SIGNING_SECRET": "sign-env"}, secret)
+
+    assert environ == {
+        "SLACK_BOT_TOKEN": "xoxb-secret",
+        "SLACK_SIGNING_SECRET": "sign-env",
+    }
+    assert warnings == ()
+
+
+def test_slack_secret_applies_only_slack_credentials():
+    secret = json.dumps({"SLACK_BOT_TOKEN": "xoxb-secret", "AGENT_ARN": _HARNESS_ARN})
+
+    environ, warnings = apply_slack_secret({"AGENT_ARN": _RUNTIME_ARN}, secret)
+
+    assert environ == {"AGENT_ARN": _RUNTIME_ARN, "SLACK_BOT_TOKEN": "xoxb-secret"}
+    assert warnings == ()

@@ -16,6 +16,7 @@ import asyncio
 import functools
 import logging
 import os
+from collections.abc import Mapping
 
 from slack_bolt import Ack, App, BoltContext
 from slack_bolt.adapter.aws_lambda import SlackRequestHandler
@@ -27,7 +28,8 @@ from app import bolt_listeners
 from app.agent_service import init_client, log_local_mode
 from app.bolt_logic import INTERRUPT_ACTION_PATTERN
 from app.bolt_middlewares import before_authorize_http
-from app.env import Env, load_env, require_env
+from app.env import Env, apply_slack_secret, load_env, require_env
+from app.secret_service import fetch_secret_string
 
 logger = logging.getLogger(__name__)
 
@@ -59,15 +61,16 @@ def _get_handler() -> SlackRequestHandler:
     Returns:
         SlackRequestHandler: The handler wrapping the configured Bolt app.
     """
-    env = load_env(os.environ)
-    signing_secret = require_env(os.environ, "SLACK_SIGNING_SECRET")
+    environ, secret_warnings = _slack_environ(os.environ)
+    env = load_env(environ)
+    signing_secret = require_env(environ, "SLACK_SIGNING_SECRET")
     SlackRequestHandler.clear_all_log_handlers()
     logging.basicConfig(level=env.deps_log_level)
     # LOG_LEVEL applies to Welt's own loggers only; the root level above
     # (DEPS_LOG_LEVEL) covers the dependencies. See Env.deps_log_level.
     logging.getLogger("app").setLevel(env.log_level)
     logger.setLevel(env.log_level)
-    for warning in env.boot_warnings:
+    for warning in (*secret_warnings, *env.boot_warnings):
         logger.warning(warning)
     # No signing region means neither an ARN nor a Gateway URL is set.
     # Name the resulting local target in the log, including on Lambda.
@@ -80,6 +83,25 @@ def _get_handler() -> SlackRequestHandler:
             gateway_only=env.agent_arn is None,
         )
     return SlackRequestHandler(app=create_bolt_app(env, signing_secret))
+
+
+def _slack_environ(
+    environ: Mapping[str, str],
+) -> tuple[dict[str, str], tuple[str, ...]]:
+    """
+    Apply the Slack credentials from SLACK_SECRET_ARN's secret, if it is set.
+
+    Args:
+        environ (Mapping[str, str]): The process environment (`os.environ`).
+
+    Returns:
+        tuple[dict[str, str], tuple[str, ...]]: The environment to configure
+            Welt from, and the boot warnings from applying the secret.
+    """
+    secret_arn = environ.get("SLACK_SECRET_ARN")
+    if not secret_arn:
+        return dict(environ), ()
+    return apply_slack_secret(environ, fetch_secret_string(secret_arn))
 
 
 def create_bolt_app(env: Env, signing_secret: str) -> App:
