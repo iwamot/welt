@@ -22,7 +22,7 @@ dependencies = [
     "boto3==1.44.5",
     # On Lambda, the Slack secret is read through the Powertools parameters
     # utility, which caches it with an expiry.
-    "aws-lambda-powertools==3.40.0",
+    "aws-lambda-powertools==3.41.0",
 ]
 
 # The dev group is included by `uv sync` and `uv run` by default (and
