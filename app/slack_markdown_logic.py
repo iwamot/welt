@@ -318,8 +318,8 @@ def _tasks_markdown(tasks: object) -> str:
     <tool>`, from the `task_update` chunk it streamed, and another app's
     reads whatever that app streamed. Stripping the `Using ` off Welt's own
     would be a rule that fits one writer's phrasing and mangles every
-    other. The plan's own title is not read: Slack writes that one, in the
-    reader's language.
+    other. The plan's own title is not read: it heads the tasks rather than
+    saying what the reply did.
 
     What a tool was given and what it returned are not here — the thread
     never showed them — so neither reaches the model.
