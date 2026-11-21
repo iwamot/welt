@@ -72,12 +72,13 @@ def test_tool_chunks_are_empty_when_nothing_changed():
 
 def test_tool_chunks_open_a_started_tool():
     assert tool_chunks(started=ToolUse(name="search", tool_use_id="t1")) == [
+        {"type": "plan_update", "title": "Tool calls"},
         {
             "type": "task_update",
             "id": "t1",
             "title": "Using search",
             "status": "in_progress",
-        }
+        },
     ]
 
 
@@ -87,7 +88,8 @@ def test_tool_chunks_close_the_completed_tool_before_opening_the_next():
         started=ToolUse(name="fetch", tool_use_id="t2"),
     )
 
-    assert [(c["id"], c["status"]) for c in chunks] == [
+    assert chunks[0] == {"type": "plan_update", "title": "Tool calls"}
+    assert [(c["id"], c["status"]) for c in chunks[1:]] == [
         ("t1", "complete"),
         ("t2", "in_progress"),
     ]
@@ -96,4 +98,5 @@ def test_tool_chunks_close_the_completed_tool_before_opening_the_next():
 def test_tool_chunks_mark_a_failed_tool_as_an_error():
     chunks = tool_chunks(completed=ToolUse(name="search", tool_use_id="t1"), error=True)
 
-    assert [(c["id"], c["status"]) for c in chunks] == [("t1", "error")]
+    assert chunks[0] == {"type": "plan_update", "title": "Tool calls"}
+    assert [(c["id"], c["status"]) for c in chunks[1:]] == [("t1", "error")]

@@ -39,6 +39,11 @@ def build_slack_user_prefixed_text(reply: dict, text: str) -> str:
 # Converse task_update chunks cap title/details at 256 characters.
 TASK_CHUNK_TITLE_MAX_LENGTH = 256
 
+# The heading over the tool calls. Left unset, Slack writes its own, in a
+# language that follows neither the asking user's locale nor the
+# workspace's.
+PLAN_TITLE = "Tool calls"
+
 
 def build_tool_use_task_chunk(
     *, tool_use_id: str | None, tool_name: str | None, status: str
@@ -71,7 +76,10 @@ def tool_chunks(
     error: bool = False,
 ) -> list[dict]:
     """
-    Build the task_update chunks for a change in which tool is running.
+    Build the chunks for a change in which tool is running.
+
+    Any change carries the plan's title with it, so a message a rollover
+    opens mid-reply gets the title on its first task too.
 
     Args:
         completed (ToolUse | None): The tool that just finished, if one did.
@@ -79,8 +87,9 @@ def tool_chunks(
         error (bool): Whether the completed tool failed.
 
     Returns:
-        list[dict]: The chunks, the completed tool's first: at most one to
-            close its task and one to open the next.
+        list[dict]: The chunks, empty when nothing changed: the plan's
+            title, then at most one to close the completed tool's task and
+            one to open the next.
     """
     chunks: list[dict] = []
     if completed is not None:
@@ -99,4 +108,6 @@ def tool_chunks(
                 status="in_progress",
             )
         )
-    return chunks
+    if not chunks:
+        return []
+    return [{"type": "plan_update", "title": PLAN_TITLE}, *chunks]
