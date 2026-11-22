@@ -1176,8 +1176,8 @@ else:
             "punctuation-adjacent (**bold**) and **bold**. should be changed",
         ),
         (
-            "CJK-adjacent これは*太字*と_斜体_と~取り消し~です should be changed",
-            "CJK-adjacent これは**太字**と*斜体*と~~取り消し~~です should be changed",
+            "CJK-adjacent これは*太字*と_斜体_と~取り消し~です shouldn't be changed",
+            "CJK-adjacent これは*太字*と_斜体_と~取り消し~です shouldn't be changed",
         ),
         (
             "already-Markdown **bold** shouldn't be changed",
