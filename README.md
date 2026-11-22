@@ -101,6 +101,13 @@ For releases that include a Lambda ZIP, download `welt-lambda-*.zip` and `templa
 gh release download vX.Y.Z --repo iwamot/welt --pattern 'welt-lambda-*.zip' --pattern template.yaml
 ```
 
+To deploy with a tool other than AWS SAM, read `welt-lambda.json` from the same release, so a deployment pinned to a Welt version follows its runtime without hard-coding it. The file is a JSON object with these string fields:
+
+- `zip`: the filename of the ZIP in the same release
+- `runtime`: the Lambda runtime identifier, such as `python3.14`
+- `architecture`: the instruction set architecture, `arm64` or `x86_64`
+- `handler`: the function handler inside the ZIP
+
 See the [Lambda guide](docs/lambda.md) for deployment steps.
 
 ## Features

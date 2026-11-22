@@ -87,6 +87,9 @@ Resources:
       Description: Slack frontend for AI agents on Amazon Bedrock AgentCore Runtime.
       CodeUri: .
       Handler: lambda_function.lambda_handler
+      # The Makefile reads the Python version from here, and Renovate raises it
+      # once Lambda publishes a base image for the next one.
+      # renovate: datasource=docker depName=public.ecr.aws/lambda/python
       Runtime: python3.14
       # Graviton: the function spends its time waiting on the AgentCore stream,
       # so there is no compute difference — only the lower duration price.
