@@ -2,5 +2,24 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "github>iwamot/renovate-config#v0.23.0"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track the Lambda Python runtime through the Lambda base image, whose X.Y tags appear as Lambda supports each Python version",
+      "managerFilePatterns": ["/(^|/)template\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\s+Runtime: python(?<currentValue>\\d+\\.\\d+)\\n"
+      ],
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "The Lambda base image stands in for the runtime, which takes a version and no digest",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["public.ecr.aws/lambda/python"],
+      "pinDigests": false
+    }
   ]
 }

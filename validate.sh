@@ -27,6 +27,8 @@ mise run docker-lint
 
 # AWS SAM
 SAM_CLI_TELEMETRY=0 sam validate --lint --template-file template.yaml
+# The Makefile fails here if template.yaml stops naming what the manifest needs.
+make -s lambda-manifest | python3 -m json.tool >/dev/null
 
 # Check for uncommitted changes
 git diff --exit-code

@@ -1,11 +1,12 @@
 """Checks that the Lambda packaging pins stay in step with the function.
 
-The Makefile resolves wheels for one Python version and one architecture, and
-`template.yaml` declares the Runtime and Architectures they are loaded under.
-Nothing else ties the two together: `sam build` succeeds either way, and a
-mismatch only shows at cold start, when a C extension built for the other
-platform fails to import. These tests are what keep the pins from drifting
-apart, and what keep the Lambda Python version in the CI matrix.
+The Makefile reads the function's Runtime, Architectures, and Handler from
+`template.yaml`, so the wheels' Python version and the release ZIP's name follow
+the function. The wheel platform is still pinned in the Makefile: `sam build`
+succeeds with any pin, and a mismatch only shows at cold start, when a C
+extension built for the other platform fails to import. These tests are what
+keep that pin from drifting apart, and what keep the Lambda Python version in
+the CI matrix.
 """
 
 from __future__ import annotations
@@ -24,25 +25,18 @@ COMPATIBILITY = (ROOT / ".github" / "workflows" / "compatibility.yml").read_text
 LAMBDA_ARCHITECTURES = {"aarch64": "arm64", "x86_64": "x86_64"}
 
 
+def function_property(name: str) -> str:
+    value = re.search(rf"^      {name}: (\S+)$", TEMPLATE, re.MULTILINE)
+    assert value
+    return value.group(1)
+
+
 def function_python_version() -> str:
-    runtime = re.search(r"^\s+Runtime: python(\S+)$", TEMPLATE, re.MULTILINE)
-    assert runtime
-    return runtime.group(1)
+    return function_property("Runtime").removeprefix("python")
 
 
 def function_architecture() -> str:
-    # A function that leaves Architectures out runs on Lambda's default.
-    if "Architectures:" not in TEMPLATE:
-        return "x86_64"
-    architectures = re.search(r"Architectures: \[(\w+)\]", TEMPLATE)
-    assert architectures
-    return architectures.group(1)
-
-
-def test_the_wheels_target_the_function_python_version():
-    pinned = re.search(r"--python-version (\S+)", MAKEFILE)
-    assert pinned
-    assert pinned.group(1) == function_python_version()
+    return function_property("Architectures").strip("[]")
 
 
 def test_the_wheels_target_the_function_architecture():
@@ -56,11 +50,3 @@ def test_ci_runs_the_function_python_version():
     versions = re.search(r"python-versions: '(.+)'", COMPATIBILITY)
     assert versions
     assert function_python_version() in json.loads(versions.group(1))
-
-
-def test_release_zip_name_matches_the_function_platform():
-    archive = re.search(r"^LAMBDA_ZIP := (\S+)$", MAKEFILE, re.MULTILINE)
-    assert archive
-    assert archive.group(1) == (
-        f"welt-lambda-python{function_python_version()}-{function_architecture()}.zip"
-    )

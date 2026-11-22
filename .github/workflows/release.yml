@@ -117,6 +117,7 @@ jobs:
           files: |
             dist/welt-lambda-*.zip
             dist/template.yaml
+            dist/welt-lambda.json
 
   image:
     name: publish-ghcr
