@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
+from copy import deepcopy
+from itertools import product
 
 from app.stream_logic import (
     FileOutput,
@@ -17,11 +20,130 @@ from app.stream_logic import (
     parse_stream_event,
 )
 
+
+def test_both_stream_dialects_preserve_text_tools_and_errors():
+    texts = (
+        "",
+        "Hello",
+        "Hi",
+        "日本語",
+        "line\nnext",
+        '"\\<@U123>',
+        " \t ",
+        "  padded  ",
+    )
+    pairs = []
+    for text in texts:
+        pairs.append(
+            (
+                {"data": text},
+                {
+                    "contentBlockDelta": {
+                        "contentBlockIndex": 0,
+                        "delta": {"text": text},
+                    }
+                },
+                TextDelta(text=text) if text else None,
+            )
+        )
+    for name, tool_id in product(
+        (None, "", "get_weather", "web_search", "日本語"),
+        (None, "", "tooluse_abc", "tool-1", "呼出し"),
+    ):
+        tool = {}
+        if name is not None:
+            tool["name"] = name
+        if tool_id is not None:
+            tool["toolUseId"] = tool_id
+        pairs.append(
+            (
+                {"current_tool_use": tool},
+                {
+                    "contentBlockStart": {
+                        "contentBlockIndex": 1,
+                        "start": {"toolUse": tool},
+                    }
+                },
+                ToolUse(name=name, tool_use_id=tool_id),
+            )
+        )
+    for tool_id, status in product(
+        (None, "", "tooluse_abc", "tool-1"), (None, "success", "error")
+    ):
+        result = {}
+        if tool_id is not None:
+            result["toolUseId"] = tool_id
+        if status is not None:
+            result["status"] = status
+        pairs.append(
+            (
+                {"tool_result": result},
+                {
+                    "contentBlockStart": {
+                        "contentBlockIndex": 2,
+                        "start": {"toolResult": result},
+                    }
+                },
+                ToolResult(tool_use_id=tool_id, error=status == "error"),
+            )
+        )
+    for text in (*texts, "division by zero", "the agent crashed"):
+        pairs.append(
+            (
+                {"error": text},
+                {"runtimeClientError": {"message": text}},
+                StreamError(message=text or "unknown error"),
+            )
+        )
+    assert parse_harness_event({"runtimeClientError": {}}) == StreamError(
+        message="unknown error"
+    )
+    for wire, harness, expected in pairs:
+        for metadata in (
+            {},
+            {"trace": {"id": "ignored"}, "usage": 42},
+            {
+                "error_type": "ZeroDivisionError",
+                "message": "An error occurred during streaming",
+            },
+        ):
+            for event, parse in (
+                (wire | metadata, parse_stream_event),
+                (harness | metadata, parse_harness_event),
+            ):
+                before = deepcopy(event)
+                assert parse(event) == expected, event
+                assert event == before
+                for ascii_only, padding in product((False, True), ("", " ", "\t")):
+                    decoded = parse_sse_data_line(
+                        f"data:{padding}{json.dumps(event, ensure_ascii=ascii_only)}"
+                    )
+                    assert decoded == event
+                    assert parse(decoded) == expected
+
+
+def test_file_events_restore_the_original_name_and_every_byte():
+    payloads = (
+        b"\x89PNG\r\n\x1a\n",
+        bytes(range(256)),
+        b"\x00",
+        b"\xff",
+        b"abcde" * 101,
+    )
+    for name, data in product(
+        ("image.png", "日本語.txt", "space and [brackets].bin"), payloads
+    ):
+        event = {
+            "file": {"name": name, "bytes": base64.b64encode(data).decode("ascii")}
+        }
+        before = deepcopy(event)
+        decoded = parse_sse_data_line(f"data: {json.dumps(event)}")
+        assert decoded == event
+        assert parse_stream_event(decoded) == FileOutput(name=name, data=data)
+        assert event == before
+
+
 # --- parse_sse_data_line -----------------------------------------------------
-
-
-def test_sse_line_decodes_data_object():
-    assert parse_sse_data_line('data: {"data": "hi"}') == {"data": "hi"}
 
 
 def test_sse_line_ignores_non_data_lines():
@@ -45,62 +167,6 @@ def test_sse_line_ignores_non_object_json():
 
 
 # --- parse_stream_event (the reply events docs/wire.md specifies) ------------
-
-
-def test_text_stream_event_is_text_delta():
-    assert parse_stream_event({"data": "Hello"}) == TextDelta(text="Hello")
-
-
-def test_empty_text_is_ignored():
-    assert parse_stream_event({"data": ""}) is None
-
-
-def test_tool_use_stream_event_is_tool_use():
-    event = {"current_tool_use": {"toolUseId": "tooluse_abc", "name": "get_weather"}}
-
-    assert parse_stream_event(event) == ToolUse(
-        name="get_weather", tool_use_id="tooluse_abc"
-    )
-
-
-def test_tool_use_with_missing_fields():
-    assert parse_stream_event({"current_tool_use": {}}) == ToolUse(
-        name=None, tool_use_id=None
-    )
-
-
-def test_tool_result_success_is_tool_result():
-    event = {"tool_result": {"toolUseId": "tooluse_abc", "status": "success"}}
-
-    assert parse_stream_event(event) == ToolResult(
-        tool_use_id="tooluse_abc", error=False
-    )
-
-
-def test_tool_result_error_is_flagged():
-    event = {"tool_result": {"toolUseId": "tooluse_abc", "status": "error"}}
-
-    assert parse_stream_event(event) == ToolResult(
-        tool_use_id="tooluse_abc", error=True
-    )
-
-
-def test_tool_result_with_missing_fields():
-    assert parse_stream_event({"tool_result": {}}) == ToolResult(
-        tool_use_id=None, error=False
-    )
-
-
-def test_file_event_is_file_output():
-    data = b"\x89PNG\r\n\x1a\n"
-    event = {
-        "file": {
-            "name": "image.png",
-            "bytes": base64.b64encode(data).decode("ascii"),
-        }
-    }
-
-    assert parse_stream_event(event) == FileOutput(name="image.png", data=data)
 
 
 def test_file_event_with_missing_name_is_ignored():
@@ -186,33 +252,7 @@ def test_an_event_carrying_no_key_welt_reads_is_ignored():
     assert parse_stream_event(event) is None
 
 
-def test_error_event_maps_to_stream_error():
-    event = {
-        "error": "division by zero",
-        "error_type": "ZeroDivisionError",
-        "message": "An error occurred during streaming",
-    }
-
-    assert parse_stream_event(event) == StreamError(message="division by zero")
-
-
-def test_empty_error_gets_the_same_fallback_as_the_harness_dialect():
-    assert parse_stream_event({"error": ""}) == StreamError(message="unknown error")
-
-
 # --- parse_harness_event -----------------------------------------------------
-
-
-def test_harness_text_delta_is_text_delta():
-    event = {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "Hi"}}}
-
-    assert parse_harness_event(event) == TextDelta(text="Hi")
-
-
-def test_harness_empty_text_delta_is_ignored():
-    event = {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": ""}}}
-
-    assert parse_harness_event(event) is None
 
 
 def test_harness_reasoning_delta_is_ignored():
@@ -230,67 +270,9 @@ def test_harness_delta_without_body_is_ignored():
     assert parse_harness_event({"contentBlockDelta": {"contentBlockIndex": 0}}) is None
 
 
-def test_harness_tool_use_start_is_tool_use():
-    event = {
-        "contentBlockStart": {
-            "contentBlockIndex": 1,
-            "start": {"toolUse": {"toolUseId": "tool-1", "name": "web_search"}},
-        }
-    }
-
-    assert parse_harness_event(event) == ToolUse(
-        name="web_search", tool_use_id="tool-1"
-    )
-
-
-def test_harness_tool_use_with_missing_fields():
-    event = {"contentBlockStart": {"start": {"toolUse": {}}}}
-
-    assert parse_harness_event(event) == ToolUse(name=None, tool_use_id=None)
-
-
-def test_harness_tool_result_start_is_tool_result():
-    event = {
-        "contentBlockStart": {
-            "contentBlockIndex": 2,
-            "start": {"toolResult": {"toolUseId": "tool-1", "status": "success"}},
-        }
-    }
-
-    assert parse_harness_event(event) == ToolResult(tool_use_id="tool-1", error=False)
-
-
-def test_harness_tool_result_error_status_is_error():
-    event = {
-        "contentBlockStart": {
-            "start": {"toolResult": {"toolUseId": "tool-1", "status": "error"}},
-        }
-    }
-
-    assert parse_harness_event(event) == ToolResult(tool_use_id="tool-1", error=True)
-
-
-def test_harness_tool_result_with_missing_fields():
-    event = {"contentBlockStart": {"start": {"toolResult": {}}}}
-
-    assert parse_harness_event(event) == ToolResult(tool_use_id=None, error=False)
-
-
 def test_harness_non_tool_block_start_is_ignored():
     assert parse_harness_event({"contentBlockStart": {"start": {}}}) is None
     assert parse_harness_event({"contentBlockStart": {}}) is None
-
-
-def test_harness_runtime_client_error_maps_to_stream_error():
-    event = {"runtimeClientError": {"message": "the agent crashed"}}
-
-    assert parse_harness_event(event) == StreamError(message="the agent crashed")
-
-
-def test_harness_error_without_message_gets_a_fallback():
-    assert parse_harness_event({"runtimeClientError": {}}) == StreamError(
-        message="unknown error"
-    )
 
 
 def test_harness_lifecycle_and_metadata_events_are_ignored():
