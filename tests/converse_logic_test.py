@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from copy import deepcopy
+from itertools import product
+
 import pytest
 
 from app.converse_logic import (
@@ -801,15 +805,6 @@ def test_documents_sharing_a_name_are_renamed_apart():
     assert document_block == _document("report")
 
 
-def test_documents_with_distinct_names_are_left_alone():
-    one, two = _document("one"), _document("two")
-    replies = [{"user": "U0AAA", "text": "hi", "files": [{"id": "F1"}, {"id": "F2"}]}]
-
-    result = _build(replies, file_blocks_by_id={"F1": one, "F2": two})
-
-    assert result == [{"role": "user", "content": [one, two, {"text": "@U0AAA: hi"}]}]
-
-
 def test_renamed_document_name_stays_within_the_length_converse_accepts():
     long_name = "a" * DOCUMENT_NAME_MAX_LENGTH
     document_block = _document(long_name)
@@ -829,126 +824,128 @@ def test_renamed_document_name_stays_within_the_length_converse_accepts():
     assert len(renamed["document"]["name"]) == DOCUMENT_NAME_MAX_LENGTH
 
 
-# --- harness delta -----------------------------------------------------------
+def test_document_names_are_unique_without_changing_attachment_contents():
+    # Include names that collide with generated suffixes and with truncation.
+    names = ("one", "two", "report", "report (2)", "a" * DOCUMENT_NAME_MAX_LENGTH)
+    for size in range(5):
+        for originals in product(names, repeat=size):
+            for per_reply in (1, 3):
+                blocks = {
+                    f"F{i}": build_document_block(
+                        document_format="pdf", name=name, data_base64=f"payload-{i}"
+                    )
+                    for i, name in enumerate(originals)
+                }
+                replies = [
+                    {
+                        "user": "U0AAA",
+                        "text": f"part {offset}",
+                        "files": [
+                            {"id": f"F{i}"}
+                            for i in range(offset, min(offset + per_reply, size))
+                        ],
+                    }
+                    for offset in range(0, size, per_reply)
+                ]
+                before = deepcopy((replies, blocks))
+                result = _build(replies, file_blocks_by_id=blocks)
+                documents: list[Mapping[str, object]] = []
+                for message in result:
+                    for block in message["content"]:
+                        document = block.get("document")
+                        if isinstance(document, dict):
+                            documents.append(document)
+                actual_names: list[str] = []
+                for document in documents:
+                    name = document["name"]
+                    assert isinstance(name, str)
+                    actual_names.append(name)
+                assert len(actual_names) == len(set(actual_names)) == size
+                assert all(
+                    0 < len(name) <= DOCUMENT_NAME_MAX_LENGTH for name in actual_names
+                )
+                for i, document in enumerate(documents):
+                    original = blocks[f"F{i}"]["document"]
+                    assert document == original | {"name": actual_names[i]}
+                    if original["name"] not in actual_names[:i]:
+                        assert actual_names[i] == original["name"]
+                expected: list[Message] = []
+                for offset in range(0, size, per_reply):
+                    expected.append(
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "document": blocks[f"F{i}"]["document"]
+                                    | {"name": actual_names[i]}
+                                }
+                                for i in range(offset, min(offset + per_reply, size))
+                            ]
+                            + [{"text": f"@U0AAA: part {offset}"}],
+                        }
+                    )
+                assert result == expected
+                assert (replies, blocks) == before
 
 
-def test_messages_after_last_assistant_are_kept():
-    messages: list[Message] = [
-        {"role": "user", "content": [{"text": "@U0AAA: hi"}]},
-        {"role": "assistant", "content": [{"text": "hello"}]},
-        {"role": "user", "content": [{"text": "@U0AAA: follow-up"}]},
-        {"role": "user", "content": [{"text": "@U0BBB: me too"}]},
-    ]
-
-    assert keep_messages_after_last_assistant(messages) == messages[2:]
+# --- history cuts ------------------------------------------------------------
 
 
-def test_conversation_without_assistant_is_kept_whole():
-    messages: list[Message] = [
-        {"role": "user", "content": [{"text": "@U0AAA: hi"}]},
-        {"role": "user", "content": [{"text": "@U0BBB: hello"}]},
-    ]
-
-    assert keep_messages_after_last_assistant(messages) == messages
-
-
-def test_conversation_ending_with_assistant_keeps_nothing():
-    messages: list[Message] = [
-        {"role": "user", "content": [{"text": "@U0AAA: hi"}]},
-        {"role": "assistant", "content": [{"text": "hello"}]},
-    ]
-
-    assert keep_messages_after_last_assistant(messages) == []
-
-
-# --- keep_replies_after_last_bot_reply ---------------------------------------
+def test_message_history_is_exactly_the_suffix_after_the_last_assistant():
+    for size in range(7):
+        for roles in product(("user", "assistant"), repeat=size):
+            messages: list[Message] = [
+                {
+                    "role": "assistant" if role == "assistant" else "user",
+                    "content": [{"text": f"message {i}"}],
+                }
+                for i, role in enumerate(roles)
+            ]
+            before = deepcopy(messages)
+            cut = max(
+                (i + 1 for i, role in enumerate(roles) if role == "assistant"),
+                default=0,
+            )
+            assert keep_messages_after_last_assistant(messages) == messages[cut:]
+            assert messages == before
 
 
-def _kept(replies: list[dict]) -> list[str]:
-    return [
-        r["text"]
-        for r in keep_replies_after_last_bot_reply(replies, bot_user_id="U0WELT")
-    ]
-
-
-def test_replies_after_welts_last_reply_are_kept():
-    replies = [
-        {"user": "U0AAA", "text": "first"},
-        {"user": "U0WELT", "text": "answer"},
-        {"user": "U0AAA", "text": "second"},
-        {"user": "U0BBB", "text": "third"},
-    ]
-
-    assert _kept(replies) == ["second", "third"]
-
-
-def test_a_thread_welt_has_not_answered_keeps_everything():
-    replies = [{"user": "U0AAA", "text": "first"}, {"user": "U0BBB", "text": "second"}]
-
-    assert _kept(replies) == ["first", "second"]
-
-
-def test_an_empty_bot_reply_is_not_the_cut():
-    # build_messages skips a bot reply with no text, so it never becomes an
-    # assistant message and must not be read as one here either. It stays in
-    # the kept replies, where build_messages skips it as it always would.
-    replies = [
-        {"user": "U0AAA", "text": "first"},
-        {"user": "U0WELT", "text": "answer"},
-        {"user": "U0AAA", "text": "second"},
-        {"user": "U0WELT", "text": "   "},
-        {"user": "U0AAA", "text": "third"},
-    ]
-
-    assert _kept(replies) == ["second", "   ", "third"]
-    assert _build(keep_replies_after_last_bot_reply(replies, bot_user_id="U0WELT")) == (
-        keep_messages_after_last_assistant(_build(replies))
+def test_reply_history_cut_preserves_unseen_turns_before_or_after_conversion():
+    # The tags say independently which replies count as an answer. Empty bot
+    # posts do not; a named file does, even without text or downloaded bytes.
+    kinds = (
+        ({"user": "U0AAA", "text": "first"}, False),
+        ({"user": "U0BBB", "text": "third"}, False),
+        ({"user": "U0WELT", "text": "answer"}, True),
+        ({"user": "U0WELT", "text": "   "}, False),
+        ({"user": "U0WELT", "text": "", "blocks": [{"type": "file"}]}, False),
+        (
+            {
+                "user": "U0WELT",
+                "text": "",
+                "files": [{"id": "F1", "name": "chart.png"}],
+            },
+            True,
+        ),
     )
-
-
-def test_a_turn_that_only_sent_a_file_is_the_cut():
-    # The file message says something now, so the agent that kept the earlier
-    # turns is not sent them again.
-    replies = [
-        {"user": "U0AAA", "text": "draw it"},
-        {"user": "U0WELT", "text": "", "files": [{"id": "F1", "name": "chart.png"}]},
-        {"user": "U0AAA", "text": "thanks"},
-    ]
-
-    assert _kept(replies) == ["thanks"]
-    assert _build(keep_replies_after_last_bot_reply(replies, bot_user_id="U0WELT")) == (
-        keep_messages_after_last_assistant(_build(replies))
-    )
-
-
-def test_a_turn_that_said_nothing_at_all_is_not_the_cut():
-    # It contributes no assistant message, so it cannot be where the history
-    # the agent already holds ends.
-    replies = [
-        {"user": "U0AAA", "text": "first"},
-        {"user": "U0WELT", "text": "answer"},
-        {"user": "U0AAA", "text": "second"},
-        {"user": "U0WELT", "text": "", "blocks": [{"type": "file"}]},
-        {"user": "U0AAA", "text": "third"},
-    ]
-
-    assert _kept(replies)[0] == "second"
-    assert _build(keep_replies_after_last_bot_reply(replies, bot_user_id="U0WELT")) == (
-        keep_messages_after_last_assistant(_build(replies))
-    )
-
-
-def test_the_cut_agrees_with_the_message_level_trim():
-    replies = [
-        {"user": "U0AAA", "text": "first"},
-        {"user": "U0WELT", "text": "answer"},
-        {"user": "U0AAA", "text": "second"},
-    ]
-
-    by_reply = keep_replies_after_last_bot_reply(replies, bot_user_id="U0WELT")
-    by_message = keep_messages_after_last_assistant(_build(replies))
-
-    assert _build(by_reply) == by_message
+    for size in range(5):
+        for middle in product(kinds, repeat=size):
+            # Real threads have a user's opener; keep a user's pending turn so
+            # trimming surrounding bot posts cannot mask the cut being tested.
+            tagged = (kinds[0], *middle, kinds[1])
+            replies = [
+                deepcopy(reply) | {"ts": str(i)} for i, (reply, _) in enumerate(tagged)
+            ]
+            before = deepcopy(replies)
+            cut = max(
+                (i + 1 for i, (_, answer) in enumerate(tagged) if answer), default=0
+            )
+            kept = keep_replies_after_last_bot_reply(replies, bot_user_id="U0WELT")
+            assert kept == replies[cut:], tagged
+            assert _build(kept) == keep_messages_after_last_assistant(
+                _build(replies)
+            ), tagged
+            assert replies == before
 
 
 # --- names ------------------------------------------------------------------
