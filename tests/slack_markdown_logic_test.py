@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from itertools import product
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from app.slack_markdown_logic import (
     attachments_to_markdown,
     blocks_to_markdown,
+    mrkdwn_to_markdown,
     slack_to_markdown,
     unescape_slack_formatting,
 )
@@ -1007,6 +1009,72 @@ def test_attachments_carrying_nothing_contribute_nothing(attachments):
 )
 def test_a_fields_list_is_read_for_whatever_its_fields_carry(fields, expected):
     assert attachments_to_markdown([{"fields": fields}]) == expected
+
+
+def test_mrkdwn_links_preserve_targets_and_labels_through_surrounding_formatting():
+    paths = ("a_b", "_a_", "*a*", "~a~", "日本語", "x?first=_a_&next=*b*")
+    labels = (
+        (None, None),
+        ("report", "report"),
+        ("*bold*", "**bold**"),
+        ("`code`", "`code`"),
+        ("a_b", "a_b"),
+    )
+    wrappers = (("", ""), ("*", "**"), ("_", "*"), ("~", "~~"))
+    for path, (label, shown_label), (marker, markdown), prefix in product(
+        paths, labels, wrappers, ("", "\0literal\0 ")
+    ):
+        url = f"https://example.com/{path}/"
+        wire_url = url.replace("&", "&amp;")
+        link = f"<{wire_url}|{label}>" if label is not None else f"<{wire_url}>"
+        shown = f"[{shown_label}]({url})" if shown_label is not None else url
+        text = f"{prefix}{marker}see {link} and {link}{marker}"
+        expected = f"{prefix}{markdown}see {shown} and {shown}{markdown}"
+        assert mrkdwn_to_markdown(text) == expected, text
+        assert (
+            blocks_to_markdown(
+                [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+            )
+            == expected
+        ), text
+        assert attachments_to_markdown([{"text": text}]) == expected, text
+
+
+def test_mrkdwn_code_preserves_literal_links_and_formatting_across_contexts():
+    bodies = (
+        "<https://example.com/_a_/>",
+        "<https://example.com/*a*/|*label*>",
+        "*bold* _italic_ ~strike~",
+        "a < b && b > c",
+        "literal &lt; and &amp;",
+        "<https://example.com/a>\n*literal*",
+    )
+    for body, (opening, closing), (before, shown_before), (
+        after,
+        shown_after,
+    ) in product(
+        bodies,
+        (("`", "`"), ("```\n", "\n```"), ("```python\n", "\n```")),
+        (("", ""), ("*before* ", "**before** "), ("日本語 ", "日本語 ")),
+        (("", ""), (" _after_", " *after*")),
+    ):
+        if opening == "`" and "\n" in body:
+            continue
+        escaped = body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        wires = [escaped]
+        if "&" not in body:
+            wires.append(body)
+        expected = f"{shown_before}{opening}{body}{closing}{shown_after}"
+        for wire in wires:
+            text = f"{before}{opening}{wire}{closing}{after}"
+            assert mrkdwn_to_markdown(text) == expected, text
+            assert (
+                blocks_to_markdown(
+                    [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+                )
+                == expected
+            ), text
+            assert attachments_to_markdown([{"text": text}]) == expected, text
 
 
 # --- mrkdwn strings ----------------------------------------------------------
