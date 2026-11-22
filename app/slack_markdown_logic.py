@@ -1005,9 +1005,9 @@ def slack_to_markdown(content: str) -> str:
     Convert Slack mrkdwn to Markdown format.
 
     Only spans that Slack itself renders as formatting are converted: a marker
-    adjacent to an ASCII letter, digit, or another marker of the same kind is
-    literal text in Slack's renderer, so `snake_case_names` and `2*3*4` pass
-    through unchanged (CJK-adjacent markers do format, matching Slack).
+    adjacent to a letter or digit in any script, or to another marker of the
+    same kind, is literal text in Slack's renderer, so `snake_case_names`,
+    `2*3*4` and `日本語_強調_です` pass through unchanged.
     See also: https://api.slack.com/reference/surfaces/formatting#basics
 
     Args:
@@ -1026,17 +1026,17 @@ def slack_to_markdown(content: str) -> str:
             for o, n in [
                 # *bold* to **bold**
                 (
-                    r"(?<![A-Za-z0-9*])\*(?!\s)([^\*\n]+?)(?<!\s)\*(?![A-Za-z0-9*])",
+                    r"(?<![^\W_]|\*)\*(?!\s)([^\*\n]+?)(?<!\s)\*(?![^\W_]|\*)",
                     r"**\1**",
                 ),
                 # _italic_ to *italic*
                 (
-                    r"(?<![A-Za-z0-9_])_(?!\s)([^_\n]+?)(?<!\s)_(?![A-Za-z0-9_])",
+                    r"(?<![^\W_]|_)_(?!\s)([^_\n]+?)(?<!\s)_(?![^\W_]|_)",
                     r"*\1*",
                 ),
                 # ~strike~ to ~~strike~~
                 (
-                    r"(?<![A-Za-z0-9~])~(?!\s)([^~\n]+?)(?<!\s)~(?![A-Za-z0-9~])",
+                    r"(?<![^\W_]|~)~(?!\s)([^~\n]+?)(?<!\s)~(?![^\W_]|~)",
                     r"~~\1~~",
                 ),
             ]:
