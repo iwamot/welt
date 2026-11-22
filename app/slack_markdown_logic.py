@@ -39,9 +39,13 @@ _LIST_INDENT = "    "
 # The deepest heading Markdown gives a level to.
 _MAX_HEADING_LEVEL = 6
 
-# A link as mrkdwn writes it: <url> or <url|label>. Only a scheme Slack
-# linkifies is matched, so a mention (<@U0123>) is left where it is.
-_MRKDWN_LINK = re.compile(r"<((?:https?|mailto):[^|>\s]+)(?:\|([^>]*))?>")
+# Code wins over links inside it; a link wins over code markers in its label.
+# Only schemes Slack linkifies are links, so mentions stay where they are.
+_MRKDWN_SPAN = re.compile(
+    r"(?P<code>```.+?```|`[^`\n]+?`)"
+    r"|<(?P<url>(?:https?|mailto):[^|>\s]+)(?:\|(?P<label>[^>]*))?>",
+    re.DOTALL,
+)
 
 
 def blocks_to_markdown(blocks: object) -> str:
@@ -192,24 +196,34 @@ def mrkdwn_to_markdown(text: str) -> str:
     Returns:
         str: The same string as Markdown.
     """
-    # Links first: the angle brackets around one are Slack's own, while a
-    # bracket someone typed arrives escaped and is only unescaped after.
-    return slack_to_markdown(unescape_slack_formatting(_links_markdown(text)))
+    # Links must be opaque to emphasis, including emphasis around a link.
+    # Choosing a prefix absent from the input keeps literal text from being
+    # mistaken for a protected link when those links are put back.
+    prefix = "\0"
+    while prefix in text:
+        prefix += "\0"
+    links: dict[str, str] = {}
 
+    def protect(match: re.Match[str]) -> str:
+        if match["code"] is not None:
+            return match[0]
+        url = unescape_slack_formatting(match["url"])
+        label = match["label"]
+        shown = (
+            f"[{slack_to_markdown(unescape_slack_formatting(label))}]({url})"
+            if label
+            else url
+        )
+        token = f"{prefix}{len(links)}{prefix}"
+        links[token] = shown
+        return token
 
-def _links_markdown(text: str) -> str:
-    """
-    Write mrkdwn's links back as Markdown.
-
-    Args:
-        text (str): A mrkdwn string.
-
-    Returns:
-        str: The string, its links written as Markdown — a labelled one as
-            `[label](url)`, a bare one as the URL it already reads as.
-    """
-    return _MRKDWN_LINK.sub(
-        lambda match: f"[{match[2]}]({match[1]})" if match[2] else match[1], text
+    protected = _MRKDWN_SPAN.sub(protect, text)
+    converted = slack_to_markdown(unescape_slack_formatting(protected))
+    return re.sub(
+        rf"{re.escape(prefix)}[0-9]+{re.escape(prefix)}",
+        lambda match: links[match[0]],
+        converted,
     )
 
 
