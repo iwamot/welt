@@ -122,8 +122,9 @@ def build_messages(
     newest replies) so the conversation starts with something a person said
     rather than mid-answer. Nova enforces the same shape, refusing a
     conversation that opens on an assistant message, where Anthropic's
-    models take one. Welt's replies that say nothing at all are skipped so no
-    blank content block is sent; the rest become `assistant` messages.
+    models take one. Welt's replies that say nothing, or only whitespace,
+    are skipped so no blank content block is sent; the rest become
+    `assistant` messages.
     Everyone else becomes a `user` message prefixed with their name so
     the model can attribute turns — always, even where the message says
     nothing (e.g. a mention-only call): the prefix keeps the text block
@@ -324,7 +325,9 @@ def _said(reply: dict, bot_user_id: str | None) -> str:
     """
     spoken = _with_file_names(reply, _with_attachments(reply, _spoken_markdown(reply)))
     if _is_welt_reply(reply, bot_user_id):
-        return spoken
+        # Whitespace alone says nothing, and Anthropic's models refuse a
+        # text block that holds nothing else.
+        return spoken if spoken.strip() else ""
     return build_slack_user_prefixed_text(reply, spoken)
 
 

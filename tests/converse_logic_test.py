@@ -161,10 +161,21 @@ def test_empty_replies():
     assert _build([]) == []
 
 
-def test_bot_reply_with_empty_text_in_middle_is_skipped():
+@pytest.mark.parametrize(
+    "said",
+    [
+        {"text": ""},
+        {"text": "   "},
+        *(
+            {"text": "", "attachments": [{"text": blank}]}
+            for blank in (" ", "   ", "\n", " \n\t ")
+        ),
+    ],
+)
+def test_bot_reply_saying_nothing_in_middle_is_skipped(said):
     replies = [
         {"user": "U0AAA", "text": "question"},
-        {"user": "U0WELT", "text": ""},
+        {"user": "U0WELT", **said},
         {"user": "U0AAA", "text": "still there?"},
     ]
 
