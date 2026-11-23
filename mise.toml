@@ -16,7 +16,7 @@ python = "3.15.2"
 "aqua:aws/aws-sam-cli" = "1.174.0"
 
 [tools."pipx:uv-override-prune"]
-version = "1.0.1"
+version = "1.0.2"
 minimum_release_age = "0d"
 
 [task_config]
