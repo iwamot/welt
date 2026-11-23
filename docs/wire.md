@@ -154,7 +154,7 @@ A generated file is one `file` event: `name` is the upload filename (extension i
 
 A run that pauses for human input ends its stream with one `interrupt` event per pending question:
 
-- `id` — identifies the question in the [resume payload](#interrupt_responses--resuming-a-run).
+- `id` — identifies the question in the [resume payload](#interrupt_responses--resuming-a-run). Keep it to **128 characters**: Welt carries it inside the question's Slack widgets, whose identifiers and values Slack caps in length, and a longer id can make Slack refuse the message that asks the question.
 - `name` — goes to Welt's log only.
 - `reason` — any JSON value; its shape alone decides the Slack rendering (see [Interrupts](interrupts.md) for how each shape looks).
 
