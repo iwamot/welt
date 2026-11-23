@@ -894,11 +894,8 @@ def _attachment_markdown(attachment: dict) -> str:
     """
     parts = [
         _attachment_string(attachment, "pretext"),
-        _linked(
-            _attachment_string(attachment, "author_name"),
-            attachment.get("author_link"),
-        ),
-        _linked(_attachment_string(attachment, "title"), attachment.get("title_link")),
+        _linked(attachment, "author_name", "author_link"),
+        _linked(attachment, "title", "title_link"),
         _attachment_string(attachment, "text"),
         _attachment_fields_markdown(attachment.get("fields")),
         _attachment_image_markdown(attachment),
@@ -967,19 +964,32 @@ def _attachment_string(attachment: dict, key: str) -> str:
     return mrkdwn_to_markdown(value) if isinstance(value, str) and value else ""
 
 
-def _linked(text: str, url: object) -> str:
+def _linked(attachment: dict, text_key: str, url_key: str) -> str:
     """
     Link a line where the attachment says where it points.
 
+    Whether the line holds a link already is read from its mrkdwn, since
+    its Markdown cannot tell a link from text that opens on a bracket,
+    like a `[WIP]` title. Markdown does not nest links, so a line holding
+    one keeps its own.
+
     Args:
-        text (str): The line's text, already Markdown.
-        url (object): The URL the attachment gives for it.
+        attachment (dict): One attachment.
+        text_key (str): The line's mrkdwn string.
+        url_key (str): The URL the attachment gives for it.
 
     Returns:
-        str: The line, linked only where both halves are there and the
-            text is not a link already.
+        str: The line as Markdown, linked only where both halves are there
+            and the line holds no link of its own.
     """
-    if not text or not isinstance(url, str) or not url or text.startswith("["):
+    text = _attachment_string(attachment, text_key)
+    url = attachment.get(url_key)
+    if not text or not isinstance(url, str) or not url:
+        return text
+    raw = attachment.get(text_key)
+    if isinstance(raw, str) and any(
+        span["url"] is not None for span in _MRKDWN_SPAN.finditer(raw)
+    ):
         return text
     return f"[{text}]({url})"
 
@@ -1007,7 +1017,9 @@ def slack_to_markdown(content: str) -> str:
     Only spans that Slack itself renders as formatting are converted: a marker
     adjacent to a letter or digit in any script, or to another marker of the
     same kind, is literal text in Slack's renderer, so `snake_case_names`,
-    `2*3*4` and `日本語_強調_です` pass through unchanged.
+    `2*3*4` and `日本語_強調_です` pass through unchanged. So is a marker
+    opening right after a backtick, as in ``x `*b*`` (measured 2026-11-23
+    on `*`, `_` and `~`).
     See also: https://api.slack.com/reference/surfaces/formatting#basics
 
     Args:
@@ -1016,27 +1028,29 @@ def slack_to_markdown(content: str) -> str:
     Returns:
         str: The converted string in Markdown format.
     """
-    # Split the input string into parts based on code blocks and inline code
+    # Split the input string into parts based on code blocks and inline code.
+    # The split captures the code, so code sits at the odd indexes; a part at
+    # an even index is text even when it opens on a backtick nothing closes.
     parts = re.split(r"(?s)(```.+?```|`[^`\n]+?`)", content)
 
     # Apply the bold, italic, and strikethrough formatting to text not within code
     result = ""
-    for part in parts:
-        if not part.startswith("```") and not part.startswith("`"):
+    for index, part in enumerate(parts):
+        if index % 2 == 0:
             for o, n in [
                 # *bold* to **bold**
                 (
-                    r"(?<![^\W_]|\*)\*(?!\s)([^\*\n]+?)(?<!\s)\*(?![^\W_]|\*)",
+                    r"(?<![^\W_]|\*|`)\*(?!\s)([^\*\n]+?)(?<!\s)\*(?![^\W_]|\*)",
                     r"**\1**",
                 ),
                 # _italic_ to *italic*
                 (
-                    r"(?<![^\W_]|_)_(?!\s)([^_\n]+?)(?<!\s)_(?![^\W_]|_)",
+                    r"(?<![^\W_]|_|`)_(?!\s)([^_\n]+?)(?<!\s)_(?![^\W_]|_)",
                     r"*\1*",
                 ),
                 # ~strike~ to ~~strike~~
                 (
-                    r"(?<![^\W_]|~)~(?!\s)([^~\n]+?)(?<!\s)~(?![^\W_]|~)",
+                    r"(?<![^\W_]|~|`)~(?!\s)([^~\n]+?)(?<!\s)~(?![^\W_]|~)",
                     r"~~\1~~",
                 ),
             ]:
