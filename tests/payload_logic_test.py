@@ -365,3 +365,72 @@ def test_the_thread_that_survives_fits_and_is_cut_only_from_the_oldest_end():
                         )
                         > budget
                     ), case
+
+
+def test_a_file_several_replies_carry_is_counted_once_per_reply():
+    # A downloaded file goes into every message that lists it. The selection
+    # holds it once per reply when slots allow, or only once when the
+    # modality's slots run out.
+    shared = ("S", 2_000)
+    attachments = ((), (shared,), (("A", 10), shared), (shared, ("A", 10)))
+    budgets = (1, 300, 2_500, 4_400, 5_000, 7_000, 9_000, 20_000)
+    for count in range(1, 4):
+        for shapes in product(attachments, repeat=count):
+            replies = [
+                _reply(
+                    "U0AAA",
+                    f"r{index}",
+                    [
+                        (file_id if file_id == "S" else f"{file_id}{index}", size)
+                        for file_id, size in files
+                    ],
+                )
+                for index, files in enumerate(shapes)
+            ]
+            sizes_by_id = {
+                file["id"]: file["size"]
+                for reply in replies
+                for file in reply.get("files", [])
+            }
+            per_reply = [
+                _selection(file["id"])
+                for reply in reversed(replies)
+                for file in reply.get("files", [])
+            ]
+            once = list({s.file_id: s for s in reversed(per_reply)}.values())[::-1]
+            for selections, budget in product((per_reply, once), budgets):
+                before = deepcopy((replies, selections))
+                kept_replies, kept_files = compact_to_payload_budget(
+                    replies,
+                    selections,
+                    bot_user_id="UBOT",
+                    display_names={},
+                    max_payload_bytes=budget,
+                )
+                assert (replies, selections) == before
+                case = (shapes, [s.file_id for s in selections], budget)
+
+                assert kept_replies, case
+                assert kept_replies == replies[len(replies) - len(kept_replies) :]
+
+                # A file a kept newer reply carries is still there.
+                kept_ids = {s.file_id for s in kept_files}
+                newer_ids = {
+                    f["id"]
+                    for reply in kept_replies[1:]
+                    for f in reply.get("files", [])
+                }
+                selected_ids = {s.file_id for s in selections}
+                assert newer_ids & selected_ids <= kept_ids, case
+
+                # What is sent fits, unless it is down to the last reply alone.
+                blocks: dict[str, ContentBlock] = {
+                    s.file_id: _image_block(s, sizes_by_id[s.file_id])
+                    for s in kept_files
+                }
+                messages = build_messages(
+                    kept_replies, bot_user_id="UBOT", file_blocks_by_id=blocks
+                )
+                sent = len(json.dumps({"messages": messages}))
+                if len(kept_replies) > 1 or kept_files:
+                    assert sent <= budget, case
