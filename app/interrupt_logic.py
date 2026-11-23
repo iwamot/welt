@@ -902,23 +902,25 @@ def build_fallback_text(blocks: Sequence, *, default: str) -> str:
 
 def append_context_notice(blocks: Sequence, text: str) -> list:
     """
-    Append a context-line notice to a message's blocks.
+    Add a notice to the end of the receipt line a stop ends with.
 
-    Used for the resume-failure notice under the approval buttons — the
-    same understated visual language as the presser line, plain text so
-    nothing in it parses as a mention.
+    Used for the resume-failure notice once every question is answered, so
+    the last block is the receipt line of the last question — the same
+    understated visual language, plain text so nothing in it parses as a
+    mention. Joining that line rather than adding a block of its own keeps
+    the count where it was: a stop may fill all the blocks one message
+    holds, and answering it leaves the count unchanged.
 
     Args:
         blocks (Sequence): The message's current blocks.
         text (str): The notice text.
 
     Returns:
-        list: The blocks with the notice appended.
+        list: The blocks with the notice at the end of the last one.
     """
-    return [
-        *blocks,
-        {"type": "context", "elements": [{"type": "plain_text", "text": text}]},
-    ]
+    *rest, last = blocks
+    notice = {"type": "plain_text", "text": text}
+    return [*rest, {**last, "elements": [*last["elements"], notice]}]
 
 
 def _receipt_label(block: object, action_id: str, answer: object) -> str | None:
