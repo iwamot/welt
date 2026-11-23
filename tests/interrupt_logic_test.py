@@ -1015,7 +1015,7 @@ def test_replacement_skips_unreadable_blocks_and_elements():
     assert updated[3]["elements"][0]["text"] == "“Selected” — answered by x"
 
 
-def test_context_notice_is_appended_after_the_existing_blocks():
+def test_context_notice_joins_the_last_receipt_line():
     blocks = [
         {"type": "markdown", "text": "Deploy?"},
         {
@@ -1026,11 +1026,68 @@ def test_context_notice_is_appended_after_the_existing_blocks():
 
     updated = append_context_notice(blocks, ":warning: Could not resume.")
 
-    assert updated[:2] == blocks
-    assert updated[2] == {
-        "type": "context",
-        "elements": [{"type": "plain_text", "text": ":warning: Could not resume."}],
-    }
+    assert updated == [
+        blocks[0],
+        {
+            "type": "context",
+            "elements": [
+                {"type": "plain_text", "text": "“Go” — answered by T"},
+                {"type": "plain_text", "text": ":warning: Could not resume."},
+            ],
+        },
+    ]
+
+
+def test_a_notice_on_an_answered_stop_fits_one_message():
+    # Two blocks a question (body and buttons) can fill a message to the
+    # limit, and answering leaves the count as it was. A question with a text
+    # field takes three, and its answer gives one back.
+    reasons = (
+        "Continue?",
+        {"message": "Pick", "options": [{"value": "a"}, {"value": "b"}]},
+        {"message": "City?", "options": [{"value": "x"}], "input": {"label": "C"}},
+    )
+    notice = ":warning: Could not resume."
+    for count in range(1, 26):
+        for first, last in product(range(len(reasons)), repeat=2):
+            kinds = [first] * (count - 1) + [last]
+            interrupts = [
+                Interrupt(id=f"i-{n}", name="q", reason=reasons[k])
+                for n, k in enumerate(kinds)
+            ]
+            try:
+                blocks = build_interrupt_blocks(interrupts)
+            except ValueError:
+                continue  # refused before it is shown: more than one message
+            for question in range(count):
+                action = _press(blocks, question, 0, "x")
+                replaced = replace_answered_blocks(
+                    blocks,
+                    action_id=action["action_id"],
+                    presser_name="iwamot",
+                    answer=action["value"],
+                )
+                assert replaced is not None
+                blocks = replaced
+            before = deepcopy(blocks)
+
+            noticed = append_context_notice(blocks, notice)
+
+            case = (count, kinds)
+            assert blocks == before, case
+            # Everything shown stays, and the notice reads last, at the end
+            # of the last question's receipt line.
+            assert len(noticed) == len(blocks) <= 50, case
+            assert noticed[:-1] == blocks[:-1], case
+            assert noticed[-1] == {
+                **blocks[-1],
+                "elements": [
+                    *blocks[-1]["elements"],
+                    {"type": "plain_text", "text": notice},
+                ],
+            }, case
+            assert noticed[-1]["type"] == "context", case
+            assert len(noticed[-1]["elements"]) <= 10, case
 
 
 def test_mixed_question_widgets_share_a_group_and_retire_together():
