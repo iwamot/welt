@@ -94,7 +94,8 @@ def compact_to_payload_budget(
     attachment first, then the rest of them backwards, then the message
     itself, then on to the next-oldest. A thread loses its old pictures
     before it loses anything anyone said, and loses the oldest of what was
-    said before the newest.
+    said before the newest. A file that a newer message also carries is
+    not one of the older message's to give up; it stays with the newer one.
 
     Taking a message's attachments from the end reads its `files` array as
     the order they were attached in, on the view that what someone attached
@@ -125,36 +126,62 @@ def compact_to_payload_budget(
     sizes = _file_sizes_by_id(replies)
     kept_replies = list(replies)
     kept_files = list(selections)
-    total = sum(
+    text_bytes = [
         reply_payload_bytes(reply, bot_user_id=bot_user_id, display_names=display_names)
-        for reply in kept_replies
-    ) + sum(
-        file_payload_bytes(sizes.get(selection.file_id, 0)) for selection in kept_files
-    )
-    while total > max_payload_bytes and kept_replies:
-        oldest = kept_replies[0]
-        dropped = _take_last_file_of(oldest, kept_files)
-        if dropped is not None:
-            total -= file_payload_bytes(sizes.get(dropped.file_id, 0))
+        for reply in replies
+    ]
+    while True:
+        total = sum(text_bytes[len(replies) - len(kept_replies) :]) + _attached_bytes(
+            kept_replies, kept_files, sizes
+        )
+        if total <= max_payload_bytes:
+            break
+        if _drop_last_file_of(kept_replies[0], kept_replies[1:], kept_files):
             continue
         if len(kept_replies) == 1:
             break
-        total -= reply_payload_bytes(
-            oldest, bot_user_id=bot_user_id, display_names=display_names
-        )
         kept_replies.pop(0)
     return kept_replies, kept_files
 
 
-def _take_last_file_of(
-    reply: dict, kept_files: list[FileToFetch]
-) -> FileToFetch | None:
-    """Remove and return the reply's last still-kept attachment, if it has one."""
+def _attached_bytes(
+    replies: list[dict], kept_files: list[FileToFetch], sizes: Mapping[str, int]
+) -> int:
+    """
+    Count the files the way `converse_logic` attaches them.
+
+    A downloaded file goes into every message that lists it, so a file that
+    several replies carry costs the payload once per reply.
+    """
+    kept_ids = {selection.file_id for selection in kept_files}
+    return sum(
+        file_payload_bytes(sizes.get(file_id, 0))
+        for reply in replies
+        for file_id in _file_ids_of(reply)
+        if file_id in kept_ids
+    )
+
+
+def _drop_last_file_of(
+    reply: dict, newer_replies: list[dict], kept_files: list[FileToFetch]
+) -> bool:
+    """
+    Drop the reply's last still-kept attachment, if it has one of its own.
+
+    A file that a newer reply also carries is left alone: the download feeds
+    every message listing it, so dropping it here would take it from the
+    newer reply too. It leaves this reply's cost when the reply itself goes.
+    """
+    newer_ids = {file_id for newer in newer_replies for file_id in _file_ids_of(newer)}
     for file_id in reversed(_file_ids_of(reply)):
-        for index, selection in enumerate(kept_files):
-            if selection.file_id == file_id:
-                return kept_files.pop(index)
-    return None
+        if file_id in newer_ids:
+            continue
+        matching = [s for s in kept_files if s.file_id == file_id]
+        if matching:
+            for selection in matching:
+                kept_files.remove(selection)
+            return True
+    return False
 
 
 def _file_ids_of(reply: dict) -> list[str]:
