@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from copy import deepcopy
 from itertools import product
@@ -679,6 +680,24 @@ def test_sanitize_document_name_collapses_whitespace_and_falls_back():
 def test_sanitize_document_name_truncates_to_the_length_converse_accepts():
     assert sanitize_document_name("a" * 250) == "a" * DOCUMENT_NAME_MAX_LENGTH
     assert sanitize_document_name(f"{'a' * 199} bc") == "a" * 199
+
+
+def test_sanitized_document_names_are_what_converse_accepts():
+    # Converse takes alphanumerics, single spaces, hyphens, parentheses and
+    # square brackets, up to 200 characters; a name it already takes is
+    # left as it is.
+    accepted = re.compile(r"[0-9A-Za-z()\[\]-]+( [0-9A-Za-z()\[\]-]+)*")
+    alphabet = ("a", "Z", "0", " ", "\t", "\n", "\u3000", ".", "_", "日", "(", "]", "-")
+    names: list[str | None] = [None, "a" * 250, f"{'a' * 199} bc", f"{'a' * 199}日"]
+    for size in range(5):
+        names.extend("".join(chars) for chars in product(alphabet, repeat=size))
+    for name in names:
+        result = sanitize_document_name(name)
+        assert accepted.fullmatch(result), (name, result)
+        assert len(result) <= DOCUMENT_NAME_MAX_LENGTH, name
+        assert sanitize_document_name(result) == result, name
+        if name is not None and accepted.fullmatch(name) and len(name) <= 200:
+            assert result == name
 
 
 def test_file_blocks_attached_documents_before_text_media_after():

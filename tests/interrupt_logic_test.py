@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
+from itertools import product
 
 import pytest
 
@@ -509,16 +511,6 @@ def test_initial_state_and_metadata_wrap():
     }
 
 
-def test_collection_state_round_trips_through_a_message():
-    state = CollectionState(
-        pending=("i-1", "i-2"),
-        answers={"i-1": Answer(value="y", source="option", user="U1")},
-    )
-    message = {"ts": "1.0", "metadata": build_collection_metadata(state)}
-
-    assert parse_collection_state(message) == state
-
-
 def test_metadata_carries_only_json_types():
     state = CollectionState(
         pending=("i-1",), answers={"i-1": Answer(value="y", source="option", user="U1")}
@@ -622,24 +614,6 @@ def test_an_answer_under_a_non_string_id_is_dropped():
     )
 
 
-def test_record_answer_fills_the_state():
-    state = CollectionState(pending=("i-1", "i-2"), answers={})
-
-    updated = record_answer(
-        state,
-        interrupt_id="i-1",
-        value="y",
-        source="option",
-        user_id="U1",
-    )
-
-    assert updated == CollectionState(
-        pending=("i-1", "i-2"),
-        answers={"i-1": Answer(value="y", source="option", user="U1")},
-    )
-    assert state.answers == {}  # the input state is not mutated
-
-
 def test_record_answer_overwrites_an_earlier_answer():
     state = CollectionState(
         pending=("i-1",), answers={"i-1": Answer(value="y", source="option", user="U1")}
@@ -672,48 +646,164 @@ def test_record_answer_rejects_an_unknown_interrupt():
     )
 
 
-def test_is_fully_answered():
-    partial = CollectionState(
-        pending=("i-1", "i-2"),
-        answers={"i-1": Answer(value="y", source="option", user="U1")},
-    )
-    full = CollectionState(
-        pending=("i-1", "i-2"),
-        answers={
-            "i-1": Answer(value="y", source="option", user="U1"),
-            "i-2": Answer(value="n", source="option", user="U2"),
+# --- answering a stop, end to end ----------------------------------------------
+
+# Reasons, each with the answers its widgets submit, in the order the
+# reason contract renders them: approve, reject, the reason's own options,
+# then the free-text field (whose answer is whatever was typed).
+_ANSWERABLE_REASONS: list[tuple[object, list[tuple[str, object]]]] = [
+    ("Continue?", [("option", True), ("option", False)]),
+    (None, [("option", True), ("option", False)]),
+    (
+        {
+            "message": "Pick",
+            "options": [
+                {"value": value}
+                for value in (None, 42, "approve", {"decision": "hold"}, True, "日本")
+            ],
         },
-    )
-
-    assert is_fully_answered(partial) is False
-    assert is_fully_answered(full) is True
-
-
-def test_interrupt_responses_follow_pending_order():
-    state = CollectionState(
-        pending=("i-1", "i-2"),
-        answers={
-            "i-2": Answer(value="n", source="option", user="U2"),
-            "i-1": Answer(value="y", source="option", user="U1"),
+        [
+            ("option", value)
+            for value in (None, 42, "approve", {"decision": "hold"}, True, "日本")
+        ],
+    ),
+    (
+        {"message": "Which city?", "input": {"label": "City"}},
+        # Typed text that reads like an option's value is still typed text.
+        [("input", "Tokyo"), ("input", "true"), ("input", "n")],
+    ),
+    (
+        {
+            "message": "Deploy?",
+            "approve": {},
+            "reject": {"label": "No"},
+            "options": [{"value": "later"}],
+            "input": {"multiline": True},
         },
-    )
+        [("option", True), ("option", False), ("option", "later"), ("input", "y")],
+    ),
+]
 
-    responses = build_interrupt_responses(state)
 
-    assert responses == {
-        "i-1": {"value": "y", "source": "option"},
-        "i-2": {"value": "n", "source": "option"},
+def _press(blocks: list, question: int, choice: int, typed: object) -> dict:
+    """Build the block_actions action Slack sends for one widget."""
+    widgets = [
+        block
+        for block in blocks
+        if block.get("block_id", "").startswith(f"welt_interrupt_q_{question}_")
+    ]
+    buttons = [
+        element
+        for block in widgets
+        if block["type"] == "actions"
+        for element in block["elements"]
+    ]
+    if choice < len(buttons):
+        button = buttons[choice]
+        return {
+            "type": "button",
+            "action_id": button["action_id"],
+            "value": button["value"],
+        }
+    (field,) = [block for block in widgets if block["type"] == "input"]
+    return {
+        "type": "plain_text_input",
+        "action_id": field["element"]["action_id"],
+        "value": typed,
     }
-    assert list(responses) == ["i-1", "i-2"]
+
+
+def test_every_answer_given_is_the_answer_the_agent_gets():
+    ids = ("i-1", "i-2", "日本-3")
+    for count in (1, 2):
+        for picked in product(range(len(_ANSWERABLE_REASONS)), repeat=count):
+            interrupts = [
+                Interrupt(id=ids[n], name="q", reason=_ANSWERABLE_REASONS[k][0])
+                for n, k in enumerate(picked)
+            ]
+            answer_sets = [_ANSWERABLE_REASONS[k][1] for k in picked]
+            for choices in product(*(range(len(a)) for a in answer_sets)):
+                for order in (range(count), reversed(range(count))):
+                    blocks = build_interrupt_blocks(interrupts)
+                    message = {
+                        "blocks": blocks,
+                        "metadata": build_collection_metadata(
+                            initial_collection_state(interrupts)
+                        ),
+                    }
+                    expected: dict[str, dict] = {}
+                    recorded = initial_collection_state(interrupts)
+                    for step, question in enumerate(order):
+                        source, value = answer_sets[question][choices[question]]
+                        action = _press(
+                            message["blocks"], question, choices[question], value
+                        )
+                        iid = interrupts[question].id
+                        assert parse_action_answer(action) == (iid, value, source)
+
+                        # The state rides in metadata, which is JSON in Slack.
+                        metadata = json.loads(json.dumps(message["metadata"]))
+                        state = parse_collection_state({"metadata": metadata})
+                        assert state == recorded
+                        assert state.pending == ids[:count]
+                        before = deepcopy(state)
+                        updated = record_answer(
+                            state,
+                            interrupt_id=iid,
+                            value=value,
+                            source=source,
+                            user_id=f"U{step}",
+                        )
+                        assert state == before
+                        assert updated is not None
+                        expected[iid] = {"value": value, "source": source}
+
+                        replaced = replace_answered_blocks(
+                            message["blocks"],
+                            action_id=action["action_id"],
+                            presser_name="iwamot",
+                            answer=value,
+                        )
+                        assert replaced is not None
+                        # The question's widgets are gone, so it cannot be
+                        # answered again; the other questions' remain.
+                        assert _press_ids(replaced) == _press_ids(
+                            message["blocks"]
+                        ) - _question_press_ids(message["blocks"], question)
+                        message = {
+                            "blocks": replaced,
+                            "metadata": build_collection_metadata(updated),
+                        }
+                        assert is_fully_answered(updated) == (step == count - 1)
+                        recorded = updated
+                    state = parse_collection_state(message)
+                    assert state == recorded
+                    assert state is not None
+                    responses = build_interrupt_responses(state)
+                    assert responses == expected
+                    assert list(responses) == list(ids[:count])
+
+
+def _press_ids(blocks: list) -> set[str]:
+    return {
+        element["action_id"]
+        for block in blocks
+        if block["type"] == "actions"
+        for element in block["elements"]
+    } | {block["element"]["action_id"] for block in blocks if block["type"] == "input"}
+
+
+def _question_press_ids(blocks: list, question: int) -> set[str]:
+    return _press_ids(
+        [
+            block
+            for block in blocks
+            if block.get("block_id", "").startswith(f"welt_interrupt_q_{question}_")
+        ]
+    )
 
 
 # --- parse_button_value ---------------------------------------------------------
-
-
-def test_button_value_round_trips():
-    value = json.dumps({"iid": "i-1", "v": "approve"})
-
-    assert parse_button_value(value) == ("i-1", "approve")
 
 
 def test_malformed_button_values_are_rejected():
@@ -730,35 +820,6 @@ def test_malformed_button_values_are_rejected():
 
     for value in malformed:
         assert parse_button_value(value) is None, value
-
-
-def test_button_values_come_back_as_the_json_they_were_declared_as():
-    declared = [True, False, None, 42, "approve", {"decision": "hold"}]
-
-    for value in declared:
-        envelope = json.dumps({"iid": "i-1", "v": value})
-
-        assert parse_button_value(envelope) == ("i-1", value)
-
-
-def test_button_action_decodes_through_its_value():
-    action = {
-        "type": "button",
-        "action_id": "welt_interrupt_0_0",
-        "value": json.dumps({"iid": "i-1", "v": "approve"}),
-    }
-
-    assert parse_action_answer(action) == ("i-1", "approve", "option")
-
-
-def test_text_input_action_decodes_id_from_its_action_id():
-    action = {
-        "type": "plain_text_input",
-        "action_id": "welt_interrupt_input_i-1",
-        "value": "Tokyo",
-    }
-
-    assert parse_action_answer(action) == ("i-1", "Tokyo", "input")
 
 
 def test_malformed_actions_are_rejected():
