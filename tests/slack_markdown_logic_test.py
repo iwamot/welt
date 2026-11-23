@@ -979,6 +979,24 @@ def test_a_title_that_is_not_a_link_already_takes_the_one_given_for_it():
     )
 
 
+@pytest.mark.parametrize(
+    "title, expected",
+    [
+        ("[WIP] Fix the build", "[[WIP] Fix the build](https://example.com/1)"),
+        (
+            "`<https://example.com/2>`",
+            "[`<https://example.com/2>`](https://example.com/1)",
+        ),
+        ("<https://example.com/2|PR>", "[PR](https://example.com/2)"),
+        ("see <https://example.com/2|PR>", "see [PR](https://example.com/2)"),
+    ],
+)
+def test_a_title_holding_no_link_of_its_own_takes_the_one_given(title, expected):
+    attachment = {"title": title, "title_link": "https://example.com/1"}
+
+    assert attachments_to_markdown([attachment]) == expected
+
+
 def test_an_attachment_showing_nothing_falls_back_to_what_it_says_it_shows():
     assert attachments_to_markdown([{"fallback": "Build failed"}]) == "Build failed"
 
@@ -1183,9 +1201,31 @@ else:
             "already-Markdown **bold** shouldn't be changed",
             "already-Markdown **bold** shouldn't be changed",
         ),
+        # Backticks nothing closes, as Slack rendered them on 2026-11-23.
+        ("`a *b*", "`a **b**"),
+        ("``` *b*", "``` **b**"),
+        ("`x``y *b*", "`x``y **b**"),
+        ("`*b*", "`*b*"),
+        ("x `*b*", "x `*b*"),
+        ("x `_i_", "x `_i_"),
+        ("x `~s~", "x `~s~"),
+        ("_i_` x", "*i*` x"),
     ],
 )
 def test_slack_to_markdown(content, expected):
     result = slack_to_markdown(content)
 
     assert result == expected
+
+
+def test_text_reads_the_same_after_code_or_a_backtick_nothing_closes():
+    # Code and a stray backtick end before the text does, and the space
+    # after them is what the text would otherwise start against: neither
+    # changes how the text after them reads.
+    tokens = ("*", "_", "~", "a", " ", "日", "\n")
+    leads = ("` ", "``` ", "`code` ", "```code``` ", "`a ` ")
+    for length in range(6):
+        for body in map("".join, product(tokens, repeat=length)):
+            converted = slack_to_markdown(body)
+            for lead in leads:
+                assert slack_to_markdown(lead + body) == lead + converted, (lead, body)
