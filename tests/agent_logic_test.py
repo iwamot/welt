@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from itertools import product
 
 import pytest
 
@@ -38,15 +39,6 @@ def test_session_id_shorter_than_api_minimum_is_padded():
     assert len(result) >= 33
 
 
-def test_session_id_stays_inside_the_harness_character_set():
-    result = build_runtime_session_id(
-        team_id="T0123456789", channel_id="C0123456789", thread_ts="1712345678.123456"
-    )
-
-    assert re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-_]*", result)
-    assert len(result) <= 100
-
-
 def test_user_id_combines_team_and_user():
     assert (
         build_runtime_user_id(team_id="T0123456789", user_id="U0123456789")
@@ -82,31 +74,6 @@ def test_malformed_arn_is_not_a_harness():
     assert not is_harness_arn("harness/short")
 
 
-_HARNESS_ARN = (
-    "arn:aws:bedrock-agentcore:us-west-2:123456789012:harness/MyHarness-XyZ1234567"
-)
-
-
-def test_harness_endpoint_arn_splits_into_harness_arn_and_endpoint():
-    result = split_endpoint_arn(f"{_HARNESS_ARN}/harness-endpoint/DEFAULT")
-
-    assert result == (_HARNESS_ARN, "DEFAULT")
-
-
-def test_harness_arn_without_an_endpoint_is_left_alone():
-    assert split_endpoint_arn(_HARNESS_ARN) == (_HARNESS_ARN, None)
-
-
-def test_harness_endpoint_arn_with_an_empty_endpoint_is_left_alone():
-    arn = f"{_HARNESS_ARN}/harness-endpoint/"
-
-    assert split_endpoint_arn(arn) == (arn, None)
-
-
-def test_harness_endpoint_arn_is_still_a_harness():
-    assert is_harness_arn(f"{_HARNESS_ARN}/harness-endpoint/DEFAULT")
-
-
 def test_arn_region_is_extracted():
     result = parse_arn_region(
         "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/my_agent-abcdefghij"
@@ -126,25 +93,50 @@ def test_malformed_arn_has_no_region():
     assert parse_arn_region("runtime/short") is None
 
 
+_HARNESS_ARN = (
+    "arn:aws:bedrock-agentcore:us-west-2:123456789012:harness/MyHarness-XyZ1234567"
+)
 _RUNTIME_ARN = (
     "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/my_agent-abcdefghij"
 )
 
 
-def test_runtime_endpoint_arn_splits_into_runtime_arn_and_endpoint():
-    result = split_endpoint_arn(f"{_RUNTIME_ARN}/runtime-endpoint/DEFAULT")
+def test_an_endpoint_arn_splits_into_the_resource_and_the_endpoint():
+    resources = (_HARNESS_ARN, _RUNTIME_ARN, "harness/short", "")
+    separators = ("/harness-endpoint/", "/runtime-endpoint/")
+    for resource, separator, endpoint in product(
+        resources, separators, ("DEFAULT", "prod_1", "")
+    ):
+        arn = f"{resource}{separator}{endpoint}"
+        if endpoint:
+            assert split_endpoint_arn(arn) == (resource, endpoint)
+        else:
+            # Naming no endpoint is not naming an empty one.
+            assert split_endpoint_arn(arn) == (arn, None)
+        # The endpoint does not change which invoke API the resource takes.
+        assert is_harness_arn(arn) == is_harness_arn(resource)
+    for resource in resources:
+        assert split_endpoint_arn(resource) == (resource, None)
 
-    assert result == (_RUNTIME_ARN, "DEFAULT")
 
-
-def test_runtime_arn_without_an_endpoint_is_left_alone():
-    assert split_endpoint_arn(_RUNTIME_ARN) == (_RUNTIME_ARN, None)
-
-
-def test_runtime_endpoint_arn_with_an_empty_endpoint_is_left_alone():
-    arn = f"{_RUNTIME_ARN}/runtime-endpoint/"
-
-    assert split_endpoint_arn(arn) == (arn, None)
+def test_session_ids_fit_both_invoke_apis_and_keep_threads_apart():
+    keys = list(
+        product(
+            (None, "T0123456789", "T1", "E0ABCDEFGHIJ"),
+            ("C0123456789", "D0123456789", "D1", "G1"),
+            ("1712345678.123456", "1.2", "1712345678.000100", "0.0"),
+        )
+    )
+    results = set()
+    for team_id, channel_id, thread_ts in keys:
+        result = build_runtime_session_id(
+            team_id=team_id, channel_id=channel_id, thread_ts=thread_ts
+        )
+        assert re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-_]*", result), result
+        assert 33 <= len(result) <= 100, result
+        results.add(result)
+    # One thread is one conversation, and no two threads share one.
+    assert len(results) == len(keys)
 
 
 @pytest.mark.parametrize(

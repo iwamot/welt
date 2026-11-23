@@ -10,6 +10,7 @@ from drifting apart.
 from __future__ import annotations
 
 import json
+from itertools import product
 from pathlib import Path
 
 import pytest
@@ -68,97 +69,59 @@ def test_the_format_tokens_are_the_ones_welt_can_send():
         assert sorted(schema_tokens) == welt_tokens
 
 
-def test_a_text_only_thread_matches_the_schema():
-    messages = build_messages(
-        [
-            {"user": "U1", "text": "hello"},
-            {"user": "U_BOT", "text": "hi"},
-            {"user": "U1", "text": "thanks"},
-        ],
-        bot_user_id="U_BOT",
-    )
+_FILE_BLOCKS: dict[str, ContentBlock] = {
+    "F_IMG": build_image_block(image_format="png", data_base64="aW1n"),
+    "F_DOC": build_document_block(
+        document_format="pdf", name="quarterly report", data_base64="ZG9j"
+    ),
+    "F_VID": build_video_block(video_format="three_gp", data_base64="dmlk"),
+    "F_TXT": build_document_block(
+        document_format="txt", name="../secret file.txt", data_base64="ZG9j"
+    ),
+    # A name with nothing Converse accepts in it.
+    "F_NONAME": build_document_block(
+        document_format="txt", name="   ", data_base64="ZG9j"
+    ),
+    # Two documents sharing a name at the length limit, so the second is
+    # renamed against it.
+    "F_LONG1": build_document_block(
+        document_format="pdf", name="a" * 250, data_base64="ZG9j"
+    ),
+    "F_LONG2": build_document_block(
+        document_format="pdf", name="a" * 250, data_base64="ZG9j"
+    ),
+}
 
-    validate({"messages": messages})
-
-
-def test_a_thread_carrying_every_file_kind_matches_the_schema():
-    blocks: dict[str, ContentBlock] = {
-        "F_IMG": build_image_block(image_format="png", data_base64="aW1n"),
-        "F_DOC": build_document_block(
-            document_format="pdf", name="quarterly report", data_base64="ZG9j"
-        ),
-        "F_VID": build_video_block(video_format="three_gp", data_base64="dmlk"),
-    }
-    messages = build_messages(
-        [
-            {
-                "user": "U1",
-                "text": "see attached",
-                "files": [{"id": "F_IMG"}, {"id": "F_DOC"}, {"id": "F_VID"}],
-            }
-        ],
-        bot_user_id="U_BOT",
-        file_blocks_by_id=blocks,
-    )
-
-    validate({"messages": messages})
-
-
-def test_a_file_reply_without_text_matches_the_schema():
-    blocks: dict[str, ContentBlock] = {
-        "F1": build_image_block(image_format="png", data_base64="aW1n")
-    }
-    messages = build_messages(
-        [{"user": "U1", "text": "<@U_BOT>", "files": [{"id": "F1"}]}],
-        bot_user_id="U_BOT",
-        file_blocks_by_id=blocks,
-    )
-
-    validate({"messages": messages})
+_THREAD_REPLIES = (
+    {"user": "U1", "text": "hello"},
+    {"user": "U_BOT", "text": "hi"},
+    {"user": "U_BOT", "text": ""},
+    {
+        "user": "U1",
+        "text": "see attached",
+        "files": [{"id": "F_IMG"}, {"id": "F_DOC"}, {"id": "F_VID"}],
+    },
+    # Nothing but a mention beside the file.
+    {"user": "U1", "text": "<@U_BOT>", "files": [{"id": "F_IMG"}]},
+    {"user": "U1", "text": "here", "files": [{"id": "F_TXT"}, {"id": "F_NONAME"}]},
+    {"user": "U1", "text": "two", "files": [{"id": "F_LONG1"}, {"id": "F_LONG2"}]},
+)
 
 
-def test_a_sanitized_document_name_matches_the_schema():
-    blocks: dict[str, ContentBlock] = {
-        "F1": build_document_block(
-            document_format="txt", name="../secret file.txt", data_base64="ZG9j"
-        )
-    }
-    messages = build_messages(
-        [{"user": "U1", "text": "here", "files": [{"id": "F1"}]}],
-        bot_user_id="U_BOT",
-        file_blocks_by_id=blocks,
-    )
-
-    validate({"messages": messages})
-
-
-def test_two_documents_sharing_a_name_at_the_length_limit_match_the_schema():
-    blocks: dict[str, ContentBlock] = {
-        file_id: build_document_block(
-            document_format="pdf", name="a" * 250, data_base64="ZG9j"
-        )
-        for file_id in ("F1", "F2")
-    }
-    messages = build_messages(
-        [{"user": "U1", "text": "two", "files": [{"id": "F1"}, {"id": "F2"}]}],
-        bot_user_id="U_BOT",
-        file_blocks_by_id=blocks,
-    )
-
-    validate({"messages": messages})
-
-
-def test_the_trimmed_thread_an_agent_managing_history_gets_matches_the_schema():
-    messages = build_messages(
-        [
-            {"user": "U1", "text": "hello"},
-            {"user": "U_BOT", "text": "hi"},
-            {"user": "U1", "text": "one more thing"},
-        ],
-        bot_user_id="U_BOT",
-    )
-
-    validate({"messages": keep_messages_after_last_assistant(messages)})
+def test_every_thread_welt_builds_matches_the_schema():
+    # A thread Welt answers holds somebody else's post: the one it answers.
+    validator = Draft202012Validator(SCHEMA)
+    for size in range(1, 4):
+        for thread in product(_THREAD_REPLIES, repeat=size):
+            if all(reply["user"] == "U_BOT" for reply in thread):
+                continue
+            messages = build_messages(
+                list(thread), bot_user_id="U_BOT", file_blocks_by_id=_FILE_BLOCKS
+            )
+            # An agent holding its own history gets the messages after
+            # Welt's last reply.
+            for sent in (messages, keep_messages_after_last_assistant(messages)):
+                validator.validate({"messages": sent})
 
 
 def test_a_resume_payload_matches_the_schema():
