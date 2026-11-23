@@ -1210,6 +1210,12 @@ else:
         ("x `_i_", "x `_i_"),
         ("x `~s~", "x `~s~"),
         ("_i_` x", "*i*` x"),
+        # A closing marker right before a backtick, as Slack rendered it on
+        # 2026-11-24: literal for `*` and `~`, italic for `_`.
+        ("*b*` x", "*b*` x"),
+        ("~s~` x", "~s~` x"),
+        ("*b*`", "*b*`"),
+        ("~s~`", "~s~`"),
     ],
 )
 def test_slack_to_markdown(content, expected):
