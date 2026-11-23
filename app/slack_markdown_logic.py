@@ -1019,7 +1019,8 @@ def slack_to_markdown(content: str) -> str:
     same kind, is literal text in Slack's renderer, so `snake_case_names`,
     `2*3*4` and `日本語_強調_です` pass through unchanged. So is a marker
     opening right after a backtick, as in ``x `*b*`` (measured 2026-11-23
-    on `*`, `_` and `~`).
+    on `*`, `_` and `~`), and a `*` or `~` closing right before one, as in
+    ``*b*` x`` — though ``_i_` x`` is italic (measured 2026-11-24).
     See also: https://api.slack.com/reference/surfaces/formatting#basics
 
     Args:
@@ -1040,7 +1041,7 @@ def slack_to_markdown(content: str) -> str:
             for o, n in [
                 # *bold* to **bold**
                 (
-                    r"(?<![^\W_]|\*|`)\*(?!\s)([^\*\n]+?)(?<!\s)\*(?![^\W_]|\*)",
+                    r"(?<![^\W_]|\*|`)\*(?!\s)([^\*\n]+?)(?<!\s)\*(?![^\W_]|\*|`)",
                     r"**\1**",
                 ),
                 # _italic_ to *italic*
@@ -1050,7 +1051,7 @@ def slack_to_markdown(content: str) -> str:
                 ),
                 # ~strike~ to ~~strike~~
                 (
-                    r"(?<![^\W_]|~|`)~(?!\s)([^~\n]+?)(?<!\s)~(?![^\W_]|~)",
+                    r"(?<![^\W_]|~|`)~(?!\s)([^~\n]+?)(?<!\s)~(?![^\W_]|~|`)",
                     r"~~\1~~",
                 ),
             ]:
