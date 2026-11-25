@@ -29,6 +29,11 @@ mise run docker-lint
 SAM_CLI_TELEMETRY=0 sam validate --lint --template-file template.yaml
 # The Makefile fails here if template.yaml stops naming what the manifest needs.
 make -s lambda-manifest | python3 -m json.tool >/dev/null
+# Build the release ZIP, so a locked dependency without a wheel for the
+# function's runtime and architecture fails here instead of at release time.
+trap 'rm -rf dist' EXIT
+rm -rf dist
+make -s lambda-zip
 
 # Check for uncommitted changes
 git diff --exit-code
