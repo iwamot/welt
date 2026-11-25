@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import functools
+import time
 from collections.abc import Mapping
 
 import boto3
-from aws_lambda_powertools.utilities.parameters import SecretsProvider
 
 from app.agent_logic import parse_arn_region
+from app.secret_logic import CachedSecret, parse_slack_secret, reusable_secret
 
 # How long a fetched secret is reused before it is read again. Five minutes is
 # the default of the AWS Parameters and Secrets Lambda Extension, so a changed
 # secret takes effect within five minutes.
 SECRET_MAX_AGE_SECONDS = 300
+
+# Kept at module level so the cache outlives an invocation and serves the warm
+# ones that follow in the same execution environment.
+_cache: dict[str, CachedSecret] = {}
 
 
 def fetch_slack_secret(secret_arn: str) -> Mapping[str, str]:
@@ -29,20 +34,19 @@ def fetch_slack_secret(secret_arn: str) -> Mapping[str, str]:
     Raises:
         TypeError: If the secret holds JSON other than an object.
     """
-    secret = _provider(secret_arn).get(
-        secret_arn, max_age=SECRET_MAX_AGE_SECONDS, transform="json"
+    now = time.monotonic()
+    secret = reusable_secret(
+        _cache.get(secret_arn), now=now, max_age=SECRET_MAX_AGE_SECONDS
     )
-    if not isinstance(secret, dict):
-        raise TypeError("SLACK_SECRET_ARN must name a secret holding a JSON object")
+    if secret is None:
+        response = _client(secret_arn).get_secret_value(SecretId=secret_arn)
+        secret = parse_slack_secret(response["SecretString"])
+        _cache[secret_arn] = CachedSecret(fetched_at=now, secret=secret)
     return secret
 
 
 @functools.cache
-def _provider(secret_arn: str) -> SecretsProvider:
+def _client(secret_arn: str):
     # The client calls the Region in the ARN, so the secret need not be in the
-    # function's Region. One provider per ARN keeps its cache across invocations.
-    return SecretsProvider(
-        boto3_client=boto3.client(
-            "secretsmanager", region_name=parse_arn_region(secret_arn)
-        )
-    )
+    # function's Region.
+    return boto3.client("secretsmanager", region_name=parse_arn_region(secret_arn))

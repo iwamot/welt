@@ -180,19 +180,6 @@ wheels = [
 ]
 
 [[package]]
-name = "aws-lambda-powertools"
-version = "3.41.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "jmespath" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e0/f5/596817cd2beeeb42ed5fe3e5a21bcacff2f57eef1a7aafb05b73a0f43247/aws_lambda_powertools-3.41.0.tar.gz", hash = "sha256:d3b899f851eae0e31100d8586a4d232b845e0d9319311ae33e766c77c17952ff", size = 845911, upload-time = "2026-11-18T12:13:20.1Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/45/519d0eb86c3f2aa586c68cbefe6765b19bdd51573936f91df4d86ec0edf5/aws_lambda_powertools-3.41.0-py3-none-any.whl", hash = "sha256:1a3a2cef8a7e6e4d460d48a2ed16ae9b0b12bd574697f23d03d14119951d8deb", size = 1023021, upload-time = "2026-11-18T12:13:18.294Z" },
-]
-
-[[package]]
 name = "awscrt"
 version = "0.38.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1099,7 +1086,6 @@ version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aiohttp" },
-    { name = "aws-lambda-powertools" },
     { name = "boto3" },
     { name = "slack-bolt" },
     { name = "slack-sdk" },
@@ -1118,7 +1104,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = "==3.14.5" },
-    { name = "aws-lambda-powertools", specifier = "==3.41.0" },
     { name = "boto3", specifier = "==1.44.10" },
     { name = "slack-bolt", specifier = "==1.30.0" },
     { name = "slack-sdk", specifier = "==3.48.0" },
