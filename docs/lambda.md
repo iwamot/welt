@@ -6,10 +6,10 @@ The setup below assumes you already have an agent on AgentCore Runtime, or a [ma
 
 ## Setup
 
-1. Create a Slack app from [`manifest.yml`](../manifest.yml) — [the pre-filled creation screen][create-app] is the quickest way there. Two values come out of it; serving over HTTP needs no app-level token:
+1. Create a Slack app from [`manifest.yml`](../manifest.yml) — [the pre-filled creation screen][create-app] is the quickest way there. Choose your workspace, then **Next**, **Create and Install**, and **Allow**. Two values come out of it; serving over HTTP needs no app-level token:
 
-   - In **Basic Information**, copy the **Signing Secret**.
-   - In **Install App**, install the app to your workspace and copy the **Bot User OAuth Token** (`xoxb-...`).
+   - On the screen that says the app is ready, open **Your app credentials** and copy the **Bot token** (`xoxb-...`). If you closed that screen, it is under **Install App**.
+   - Choose **Go to App Settings**, and on the **Basic Information** page that opens, copy the **Signing Secret**.
 
 2. Deploy using the release ZIP or build the function from source.
 

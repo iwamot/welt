@@ -6,10 +6,12 @@ The setup below assumes you already have an agent on AgentCore Runtime, or a [ma
 
 ## Setup
 
-1. Create a Slack app from [`manifest.yml`](../manifest.yml) — [the pre-filled creation screen][create-app] is the quickest way there. Two tokens come out of it:
+1. Create a Slack app from [`manifest.yml`](../manifest.yml) — [the pre-filled creation screen][create-app] is the quickest way there. Choose your workspace, then **Next**, **Create and Install**, and **Allow**. Two tokens come out of it, both on the screen that says the app is ready, under **Your app credentials**:
 
-   - In **Basic Information > App-Level Tokens**, generate a token with the `connections:write` scope (`xapp-1-...`).
-   - In **Install App**, install the app to your workspace and copy the **Bot User OAuth Token** (`xoxb-...`).
+   - The **Bot token** (`xoxb-...`).
+   - The **App token** (`xapp-1-...`).
+
+   If you closed that screen, the bot token is under **Install App** and the app token under **Basic Information > App-Level Tokens**.
 
 2. Run the image with those tokens and the ARN to invoke:
 
