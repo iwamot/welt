@@ -25,9 +25,8 @@ The Quick Start runs everything on your machine — Welt in one terminal, the ex
 
 ### 1. Create a Slack App
 
-- Go to <https://api.slack.com/apps> and create a new Slack app from [`manifest.yml`](manifest.yml) — or open [the pre-filled creation screen][create-app] to skip the copy and paste.
-- In **Basic Information > App-Level Tokens**, generate a token with the `connections:write` scope and copy it (`xapp-1-...`).
-- In **Install App**, install the app to your workspace and copy the **Bot User OAuth Token** (`xoxb-...`).
+- Go to <https://api.slack.com/apps> and create a new Slack app from [`manifest.yml`](manifest.yml) — or open [the pre-filled creation screen][create-app] to skip the copy and paste. Choose your workspace, then **Next**, **Create and Install**, and **Allow**.
+- On the screen that says the app is ready, open **Your app credentials** and copy the **Bot token** (`xoxb-...`) and the **App token** (`xapp-1-...`). If you closed that screen, the bot token is under **Install App** and the app token under **Basic Information > App-Level Tokens**.
 
 ### 2. Get the Code and Create a `.env` File
 
