@@ -1,12 +1,17 @@
 """Slack chat streaming with rollover past the message length limit.
 
-Slack caps one streamed message at an undocumented total length (observed at
-~10,000 characters as of 2026-07): once the accumulated text would cross it,
-chat.appendStream and chat.stopStream fail with `msg_too_long`. Long agent
-replies are normal, so the failure is absorbed instead of surfaced: the full
-message is finalized as it stands, a fresh streamed message opens in the same
-thread, and the text the SDK helper had not yet delivered is replayed into
-it. The reader just sees the reply continue in a follow-up message.
+Slack caps one streamed message at an undocumented total length (about
+12,000 characters, measured 2026-11-27): once the accumulated text would
+cross it, chat.appendStream and chat.stopStream fail with `msg_too_long`.
+Long agent replies are normal, so a reply moves on to a fresh streamed
+message in the same thread, and the reader sees it continue there.
+
+Where it moves on is chosen where it can be: past SOFT_MESSAGE_LENGTH the
+message ends at the next paragraph break outside a code block, so no code
+block or table is cut in two. A paragraph that reaches Slack's limit first
+is cut where Slack refuses it: the full message is finalized as it stands,
+the text the SDK helper had not yet delivered is replayed into the fresh
+one, and a code block the cut fell inside is opened again there.
 """
 
 from __future__ import annotations
@@ -19,9 +24,12 @@ from slack_sdk.web.async_chat_stream import AsyncChatStream
 from slack_sdk.web.async_client import AsyncWebClient
 
 from app.slack_stream_logic import (
+    SOFT_MESSAGE_LENGTH,
     PendingAppends,
     is_message_too_long,
     note_after_reply,
+    open_fence,
+    split_point,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +67,8 @@ class RotatingChatStream:
         self._buffer_size = buffer_size
         self._streamer: AsyncChatStream | None = None
         self._pending = PendingAppends()
+        # The markdown handed to the current message, delivered or not.
+        self._text = ""
         self._abandoned = False
 
     @property
@@ -87,12 +97,19 @@ class RotatingChatStream:
         if self._streamer is None:
             self._streamer = await self._new_streamer()
             _open_streams.add(self)
-        try:
-            await self._append_to_streamer(markdown_text=markdown_text, chunks=chunks)
-        except SlackApiError as error:
-            if not is_message_too_long(error):
-                raise
-            await self._rotate()
+        if markdown_text and not chunks:
+            split = split_point(self._text, markdown_text, SOFT_MESSAGE_LENGTH)
+            if split is not None:
+                at, fence = split
+                # The part up to the break is appended as it is: checked
+                # again, it would end at the same break.
+                if at > 0:
+                    await self._append_or_rotate(markdown_text=markdown_text[:at])
+                await self._move_on(fence=fence)
+                if at < len(markdown_text):
+                    await self.append(markdown_text=markdown_text[at:])
+                return
+        await self._append_or_rotate(markdown_text=markdown_text, chunks=chunks)
 
     async def stop(
         self,
@@ -187,11 +204,50 @@ class RotatingChatStream:
             self._thread_ts,
         )
         replay = self._pending.drain()
+        undelivered = "".join(item.markdown_text or "" for item in replay)
+        # Slack closes the code block a finalized message ends inside, so the
+        # one the cut fell in is opened again for the rest of it.
+        fence = open_fence(self._text[: len(self._text) - len(undelivered)])
+        self._text = ""
         self._streamer = await self._new_streamer()
+        if fence is not None:
+            await self._append_to_streamer(markdown_text=fence + "\n", chunks=None)
         for item in replay:
             await self._append_to_streamer(
                 markdown_text=item.markdown_text, chunks=item.chunks
             )
+
+    async def _append_or_rotate(
+        self, *, markdown_text: str | None, chunks: list[dict] | None = None
+    ) -> None:
+        """Append to the current message, rolling over where Slack refuses."""
+        try:
+            await self._append_to_streamer(markdown_text=markdown_text, chunks=chunks)
+        except SlackApiError as error:
+            if not is_message_too_long(error):
+                raise
+            await self._rotate()
+
+    async def _move_on(self, *, fence: str | None) -> None:
+        """Finalize the current message at a break and open the next one.
+
+        The SDK helper delivers what it still holds as it stops. Should that
+        overflow after all, the usual rollover takes the message from there,
+        and the reply already continues in a fresh one. A break inside a code
+        block opens the next message with the block's fence.
+        """
+        try:
+            await self._require_streamer().stop()
+        except SlackApiError as error:
+            if not is_message_too_long(error):
+                raise
+            await self._rotate()
+            return
+        self._pending.clear()
+        self._text = ""
+        self._streamer = await self._new_streamer()
+        if fence is not None:
+            await self._append_or_rotate(markdown_text=fence + "\n")
 
     async def _append_to_streamer(
         self, *, markdown_text: str | None, chunks: list[dict] | None
@@ -203,6 +259,7 @@ class RotatingChatStream:
         for a rollover to replay.
         """
         self._pending.record(markdown_text=markdown_text, chunks=chunks)
+        self._text += markdown_text or ""
         response = await self._require_streamer().append(
             markdown_text=markdown_text, chunks=chunks
         )
