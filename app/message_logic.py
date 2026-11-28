@@ -2,7 +2,7 @@
 
 The speaker prefix on the way in, the streaming chunks on the way out.
 Reading what a message shows is
-`slack_markdown_logic`; outbound Markdown needs no conversion at all —
+the `slack-as-markdown` package's; outbound Markdown needs no conversion at all —
 the chat streaming API renders `markdown_text` server-side.
 """
 

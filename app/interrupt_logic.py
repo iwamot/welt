@@ -44,8 +44,9 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
+from slack_as_markdown import blocks_as_markdown
+
 from app.bolt_logic import INTERRUPT_ACTION_PREFIX
-from app.slack_markdown_logic import blocks_to_markdown
 from app.stream_logic import Interrupt
 
 # The metadata event type marking a message as Welt's interrupt collector.
@@ -897,7 +898,7 @@ def build_fallback_text(blocks: Sequence, *, default: str) -> str:
     Returns:
         str: What the blocks say, clipped to what Slack takes.
     """
-    return _clip(blocks_to_markdown(list(blocks)), _FALLBACK_TEXT_MAX) or default
+    return _clip(blocks_as_markdown(list(blocks)), _FALLBACK_TEXT_MAX) or default
 
 
 def append_context_notice(blocks: Sequence, text: str) -> list:
