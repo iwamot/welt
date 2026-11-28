@@ -20,6 +20,8 @@ dependencies = [
     "aiohttp==3.14.5",
     # invoke_agent_runtime (AgentCore Runtime) is called through boto3.
     "boto3==1.44.12",
+    # Reads a thread's messages as the Markdown the agent receives.
+    "slack-as-markdown==0.1.0",
 ]
 
 # The dev group is included by `uv sync` and `uv run` by default (and
@@ -41,6 +43,9 @@ dev = [
 
 [tool.uv]
 exclude-newer = "1 day"
+# iwamot's own packages are taken as soon as they are released, as Renovate
+# proposes them (no minimum release age for them in iwamot/renovate-config).
+exclude-newer-package = { slack-as-markdown = "0 days" }
 
 [tool.uv.audit]
 # Check the locked packages against OSV malware advisories before any sync

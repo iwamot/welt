@@ -18,12 +18,9 @@ import re
 from collections.abc import Mapping
 from typing import Literal, TypedDict, TypeGuard
 
+from slack_as_markdown import message_as_markdown
+
 from app.message_logic import build_slack_user_prefixed_text
-from app.slack_markdown_logic import (
-    attachments_to_markdown,
-    blocks_to_markdown,
-    mrkdwn_to_markdown,
-)
 
 
 class TextBlock(TypedDict):
@@ -323,55 +320,12 @@ def _said(reply: dict, bot_user_id: str | None) -> str:
         str: The reply's words, behind its speaker's mention where it has
             one.
     """
-    spoken = _with_file_names(reply, _with_attachments(reply, _spoken_markdown(reply)))
+    spoken = _with_file_names(reply, message_as_markdown(reply))
     if _is_welt_reply(reply, bot_user_id):
         # Whitespace alone says nothing, and Anthropic's models refuse a
         # text block that holds nothing else.
         return spoken if spoken.strip() else ""
     return build_slack_user_prefixed_text(reply, spoken)
-
-
-def _with_attachments(reply: dict, spoken: str) -> str:
-    """
-    Read what hangs off a message, under what the message says.
-
-    An app puts what it has to say there — a workflow notification carries
-    no blocks and no text at all — and under what a person wrote, Slack
-    puts its own unfurling of any link they pasted. Both are read: both are
-    what the thread shows under the message.
-
-    Args:
-        reply (dict): A Slack reply.
-        spoken (str): What the reply's blocks or text say.
-
-    Returns:
-        str: The reply's words and its attachments'.
-    """
-    attached = attachments_to_markdown(reply.get("attachments"))
-    return "\n\n".join(part for part in (spoken, attached) if part)
-
-
-def _spoken_markdown(reply: dict) -> str:
-    """
-    Read what a reply says as Markdown.
-
-    Blocks come first, and `text` stands in where they carry nothing —
-    a message posted as plain text has no blocks at all, and one whose
-    blocks are all of a shape this reads nothing from would otherwise lose
-    what its sender wrote in `text` beside them.
-
-    Args:
-        reply (dict): A Slack reply.
-
-    Returns:
-        str: What the reply says, empty when it says nothing.
-    """
-    blocks = reply.get("blocks")
-    if isinstance(blocks, list) and blocks:
-        spoken = blocks_to_markdown(blocks).strip()
-        if spoken:
-            return spoken
-    return _cleaned_text(reply).strip()
 
 
 def _with_file_names(reply: dict, spoken: str) -> str:
@@ -427,10 +381,6 @@ def _file_lines(reply: dict) -> list[str]:
         elif title or name:
             lines.append(f"[file: {title or name}]")
     return lines
-
-
-def _cleaned_text(reply: dict) -> str:
-    return mrkdwn_to_markdown(_text_of(reply))
 
 
 def _is_welt_reply(reply: dict, bot_user_id: str | None) -> bool:
@@ -494,11 +444,6 @@ def _file_blocks_of(
         else:
             media_blocks.append(block)
     return document_blocks, media_blocks
-
-
-def _text_of(reply: dict) -> str:
-    value = reply.get("text", "")
-    return value if isinstance(value, str) else ""
 
 
 def keep_messages_after_last_assistant(messages: list[Message]) -> list[Message]:
